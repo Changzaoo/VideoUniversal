@@ -109,16 +109,18 @@ Cookies de sessao devem ser exportados com autorizacao do usuario e configurados
 ## Backend local pelo ngrok
 
 Para usar este PC como backend do app instalado no celular, mantenha o backend local rodando na porta `3333` e abra
-um tunel ngrok para essa porta:
+um tunel ngrok para o roteador local:
 
 ```powershell
 ngrok config add-authtoken SEU_TOKEN
-ngrok http http://127.0.0.1:3333
+node .\scripts\ngrok-router.mjs
+ngrok http http://127.0.0.1:3099
 ```
 
-O frontend publicado tenta primeiro `/pc-api`, uma rota da Vercel que repassa para o tunel configurado no `vercel.json`.
-Esse proxy evita a tela intermediaria do ngrok gratuito no celular. Se o tunel estiver offline, o app tenta as APIs
-locais e depois o backend do Render.
+O roteador deixa duas portas locais rodando em paralelo no mesmo dominio do ngrok: `/vu/*` vai para o Video Universal
+em `3333`, e todo o restante continua indo para a outra aplicacao em `3005`. O frontend publicado tenta primeiro
+`/pc-api`, uma rota da Vercel que repassa para `/vu/api/*` no tunel configurado no `vercel.json`. Se o tunel estiver
+offline, o app tenta as APIs locais e depois o backend do Render.
 
 ## Endpoints
 
