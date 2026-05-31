@@ -11,20 +11,18 @@ services:
     autoDeployTrigger: commit
     envVars:
       - key: NODE_ENV
-        value: production
+        value: "production"
       - key: HOST
-        value: 0.0.0.0
+        value: "0.0.0.0"
       - key: PORT
-        value: 10000
+        value: "10000"
       - key: YTDLP_BIN
-        value: yt-dlp
+        value: "yt-dlp"
       - key: STREAM_DOWNLOADS
-        value: false
+        value: "false"
       - key: FFMPEG_BIN
-        value: ffmpeg
-      - key: YTDLP_EXTRACTOR_ARGS
-        value: youtube:player_client=android_vr,ios,web
+        value: "ffmpeg"
       - key: ALLOWED_ORIGINS
-        value: https://videouniversal.vercel.app
+        value: "https://videouniversal.vercel.app"
       - key: ADMIN_TOKEN
         sync: false

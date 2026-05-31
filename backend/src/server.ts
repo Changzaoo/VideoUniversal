@@ -163,7 +163,7 @@ app.get("/", (_req, res) => {
 app.get("/api/info", async (req, res, next) => {
   try {
     const { url } = infoSchema.parse(parseQueryObject(req.query));
-    const info = await getVideoInfo(url).catch(() => null);
+    const info = await getVideoInfo(url);
     res.json(info);
   } catch (error) {
     next(error);
