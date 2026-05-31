@@ -18,5 +18,7 @@ services:
         value: 10000
       - key: YTDLP_BIN
         value: yt-dlp
+      - key: STREAM_DOWNLOADS
+        value: true
       - key: FRONTEND_ORIGIN
         value: https://videouniversal.vercel.app,http://localhost:5173

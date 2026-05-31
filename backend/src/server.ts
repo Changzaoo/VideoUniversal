@@ -6,7 +6,7 @@ import rateLimit from "express-rate-limit";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import morgan from "morgan";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -17,6 +17,7 @@ const app = express();
 const port = Number(process.env.PORT ?? 3333);
 const host = process.env.HOST ?? "0.0.0.0";
 const ytdlpBin = process.env.YTDLP_BIN?.trim() || "yt-dlp";
+const streamDownloads = process.env.STREAM_DOWNLOADS === "true";
 const corsOrigins = (process.env.FRONTEND_ORIGIN ?? "http://localhost:5173,https://videouniversal.vercel.app")
   .split(",")
   .map((origin) => origin.trim())
@@ -123,6 +124,12 @@ app.post("/api/download", async (req, res, next) => {
 
   try {
     const { url, type, quality = "best" } = downloadSchema.parse(req.body);
+
+    if (streamDownloads) {
+      await streamDownload(url, type, quality, res);
+      return;
+    }
+
     await fs.mkdir(tempDir, { recursive: true });
 
     const info = await getVideoInfo(url);
@@ -264,6 +271,194 @@ function runYtDlp(args: string[], timeoutMs: number): Promise<{ stdout: string; 
   });
 }
 
+async function streamDownload(url: string, type: "video" | "audio", quality: string, res: Response): Promise<void> {
+  const extension = type === "video" ? "mp4" : "mp3";
+  const fileName = `videouniversal-download.${extension}`;
+
+  if (type === "video") {
+    const child = spawn(ytdlpBin, getStreamingVideoArgs(url, quality), {
+      shell: false,
+      windowsHide: true
+    });
+
+    await streamChildStdout(child, res, {
+      contentType: "video/mp4",
+      fileName,
+      firstByteTimeoutMs: 90 * 1000,
+      stderrLabel: "yt-dlp"
+    });
+    return;
+  }
+
+  const ytdlp = spawn(ytdlpBin, getStreamingAudioArgs(url), {
+    shell: false,
+    windowsHide: true
+  });
+  const ffmpeg = spawn(
+    "ffmpeg",
+    ["-hide_banner", "-loglevel", "error", "-i", "pipe:0", "-vn", "-codec:a", "libmp3lame", "-q:a", "0", "-f", "mp3", "pipe:1"],
+    {
+      shell: false,
+      windowsHide: true
+    }
+  );
+
+  ytdlp.stdout.pipe(ffmpeg.stdin);
+  ytdlp.stdout.on("error", () => undefined);
+  ffmpeg.stdin.on("error", () => undefined);
+  ytdlp.stderr.on("data", (chunk: Buffer) => {
+    ffmpeg.stderr.emit("data", Buffer.from(`[yt-dlp] ${chunk.toString("utf8")}`));
+  });
+  ytdlp.on("error", () => ffmpeg.kill("SIGTERM"));
+  ytdlp.on("close", (code) => {
+    if (code !== 0) {
+      ffmpeg.kill("SIGTERM");
+    }
+  });
+
+  await streamChildStdout(ffmpeg, res, {
+    contentType: "audio/mpeg",
+    fileName,
+    firstByteTimeoutMs: 120 * 1000,
+    stderrLabel: "ffmpeg"
+  });
+}
+
+function getStreamingVideoArgs(url: string, quality: string): string[] {
+  return [
+    "--no-playlist",
+    "--no-warnings",
+    "--socket-timeout",
+    "20",
+    "--retries",
+    "3",
+    "--fragment-retries",
+    "3",
+    "--format",
+    getStreamingVideoFormat(quality),
+    "--output",
+    "-",
+    url
+  ];
+}
+
+function getStreamingAudioArgs(url: string): string[] {
+  return [
+    "--no-playlist",
+    "--no-warnings",
+    "--socket-timeout",
+    "20",
+    "--retries",
+    "3",
+    "--fragment-retries",
+    "3",
+    "--format",
+    "bestaudio/best",
+    "--output",
+    "-",
+    url
+  ];
+}
+
+function streamChildStdout(
+  child: ChildProcessWithoutNullStreams,
+  res: Response,
+  options: { contentType: string; fileName: string; firstByteTimeoutMs: number; stderrLabel: string }
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let started = false;
+    let finished = false;
+    let stderr = "";
+
+    const firstByteTimer = setTimeout(() => {
+      if (!started) {
+        child.kill("SIGTERM");
+        reject(new HttpError(504, `${options.stderrLabel} demorou demais para iniciar o download.`));
+      }
+    }, options.firstByteTimeoutMs);
+
+    const fail = (error: Error) => {
+      clearTimeout(firstByteTimer);
+
+      if (finished) {
+        return;
+      }
+
+      finished = true;
+
+      if (res.headersSent) {
+        res.destroy(error);
+        return;
+      }
+
+      reject(error);
+    };
+
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr = appendLimited(stderr, chunk.toString("utf8"), 8000);
+    });
+
+    child.on("error", (error) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        fail(new HttpError(500, `Nao encontrei o binario necessario para o download. Verifique yt-dlp/FFmpeg no servidor.`));
+        return;
+      }
+
+      fail(error);
+    });
+
+    child.stdout.once("data", (chunk: Buffer) => {
+      if (finished) {
+        return;
+      }
+
+      started = true;
+      clearTimeout(firstByteTimer);
+      res.setHeader("Content-Type", options.contentType);
+      res.setHeader("Content-Disposition", `attachment; filename="${options.fileName}"`);
+      res.setHeader("Cache-Control", "no-store");
+      res.write(chunk);
+      child.stdout.pipe(res, { end: false });
+    });
+
+    child.on("close", (code) => {
+      clearTimeout(firstByteTimer);
+
+      if (finished) {
+        return;
+      }
+
+      finished = true;
+
+      if (code === 0) {
+        if (!res.headersSent) {
+          reject(new HttpError(502, "O download terminou sem enviar dados."));
+          return;
+        }
+
+        res.end();
+        resolve();
+        return;
+      }
+
+      const message = normalizeYtDlpError(stderr || `${options.stderrLabel} finalizou com codigo ${code}.`);
+
+      if (res.headersSent) {
+        res.destroy(new Error(message));
+        return;
+      }
+
+      reject(new HttpError(502, message));
+    });
+
+    res.on("close", () => {
+      if (!finished) {
+        child.kill("SIGTERM");
+      }
+    });
+  });
+}
+
 async function findDownloadedFile(tempDir: string, preferredExtension: string): Promise<string> {
   const entries = await fs.readdir(tempDir, { withFileTypes: true });
   const files = entries
@@ -313,6 +508,25 @@ function getVideoFormat(quality: string): string {
   }
 
   return `bv*[height<=${maxHeight}][ext=mp4]+ba[ext=m4a]/b[height<=${maxHeight}][ext=mp4]/best[height<=${maxHeight}]/best`;
+}
+
+function getStreamingVideoFormat(quality: string): string {
+  if (quality === "best") {
+    return "b[ext=mp4][vcodec!=none][acodec!=none]/best[ext=mp4][vcodec!=none][acodec!=none]";
+  }
+
+  const maxHeight = Number.parseInt(quality, 10);
+
+  if (!Number.isFinite(maxHeight)) {
+    return "b[ext=mp4][vcodec!=none][acodec!=none]/best[ext=mp4][vcodec!=none][acodec!=none]";
+  }
+
+  return `b[height<=${maxHeight}][ext=mp4][vcodec!=none][acodec!=none]/best[height<=${maxHeight}][ext=mp4][vcodec!=none][acodec!=none]`;
+}
+
+function appendLimited(current: string, next: string, limit: number): string {
+  const joined = current + next;
+  return joined.length > limit ? joined.slice(joined.length - limit) : joined;
 }
 
 function normalizeYtDlpError(message: string): string {
