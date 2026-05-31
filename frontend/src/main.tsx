@@ -13,6 +13,9 @@ import {
 
 const REMOTE_API_BASE_URL = "https://videouniversal-backend.onrender.com/api";
 const DIRECT_DOWNLOAD_MIN_DURATION_SECONDS = 5 * 60;
+const LOCAL_HEALTH_TIMEOUT_MS = 3500;
+const REMOTE_HEALTH_TIMEOUT_MS = 30000;
+const VIDEO_INFO_TIMEOUT_MS = 45000;
 const LOCAL_API_BASE_URLS = [
   "http://localhost:3333/api",
   "http://localhost:3334/api",
@@ -221,7 +224,7 @@ async function resolveApiBaseUrl(preferredApiBaseUrl: string): Promise<string> {
 
   for (const apiBaseUrl of getApiBaseUrlCandidates(preferredApiBaseUrl)) {
     try {
-      const response = await fetchWithTimeout(`${apiBaseUrl}/health`, 2500);
+      const response = await fetchWithTimeout(`${apiBaseUrl}/health`, getHealthTimeoutMs(apiBaseUrl));
 
       if (response.ok) {
         return apiBaseUrl;
@@ -233,12 +236,15 @@ async function resolveApiBaseUrl(preferredApiBaseUrl: string): Promise<string> {
     }
   }
 
-  throw lastError ?? new Error("Nao encontrei a API online.");
+  throw normalizeRequestError(lastError, "Nao encontrei a API online. Tente novamente em alguns segundos.");
 }
 
 async function fetchWithTimeout(url: string, timeoutMs: number, init?: RequestInit): Promise<Response> {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  const timer = window.setTimeout(
+    () => controller.abort(new DOMException("Tempo limite excedido.", "TimeoutError")),
+    timeoutMs
+  );
 
   try {
     return await fetch(url, { ...init, signal: controller.signal });
@@ -253,6 +259,11 @@ async function downloadFile(
   type: DownloadType,
   quality: VideoQuality
 ): Promise<DownloadResult> {
+  if (type === "video") {
+    startDirectDownload(buildDownloadUrl(apiBaseUrl, url, type, quality));
+    return "direct";
+  }
+
   const info = await getVideoInfo(apiBaseUrl, url).catch(() => null);
 
   if (shouldUseDirectDownload(info, type)) {
@@ -260,13 +271,12 @@ async function downloadFile(
     return "direct";
   }
 
-  const payload = type === "video" ? { url, type, quality } : { url, type };
   const response = await fetch(`${apiBaseUrl}/download`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify(payload)
+    body: JSON.stringify({ url, type })
   });
 
   if (!response.ok) {
@@ -281,13 +291,13 @@ async function downloadFile(
 
   const fileName =
     getFileNameFromContentDisposition(response.headers.get("Content-Disposition")) ??
-    `download.${type === "video" ? "mp4" : "mp3"}`;
+    "download.mp3";
   startBlobDownload(blob, fileName);
   return "blob";
 }
 
 async function getVideoInfo(apiBaseUrl: string, url: string): Promise<VideoInfo> {
-  const response = await fetchWithTimeout(`${apiBaseUrl}/info`, 15000, {
+  const response = await fetchWithTimeout(`${apiBaseUrl}/info`, VIDEO_INFO_TIMEOUT_MS, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -309,6 +319,10 @@ function shouldUseDirectDownload(info: VideoInfo | null, type: DownloadType): bo
 
   const threshold = type === "audio" ? DIRECT_DOWNLOAD_MIN_DURATION_SECONDS * 2 : DIRECT_DOWNLOAD_MIN_DURATION_SECONDS;
   return info.duration >= threshold;
+}
+
+function getHealthTimeoutMs(apiBaseUrl: string): number {
+  return isLocalApiBaseUrl(apiBaseUrl) ? LOCAL_HEALTH_TIMEOUT_MS : REMOTE_HEALTH_TIMEOUT_MS;
 }
 
 function buildDownloadUrl(apiBaseUrl: string, url: string, type: DownloadType, quality: VideoQuality): string {
@@ -422,7 +436,31 @@ function startDirectDownload(downloadUrl: string): void {
 }
 
 function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Algo deu errado. Tente novamente.";
+  return normalizeRequestError(error, "Algo deu errado. Tente novamente.").message;
+}
+
+function normalizeRequestError(error: unknown, fallbackMessage: string): Error {
+  if (isAbortError(error)) {
+    return new Error("A API demorou para responder. Aguarde alguns segundos e tente novamente.");
+  }
+
+  if (error instanceof Error && error.message.trim()) {
+    return error;
+  }
+
+  return new Error(fallbackMessage);
+}
+
+function isAbortError(error: unknown): boolean {
+  if (error instanceof DOMException) {
+    return error.name === "AbortError" || error.name === "TimeoutError";
+  }
+
+  if (error instanceof Error) {
+    return /abort|aborted|signal|timeout|tempo limite/i.test(error.message);
+  }
+
+  return false;
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

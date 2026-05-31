@@ -22,7 +22,7 @@ const ytdlpBin = process.env.YTDLP_BIN?.trim() || "yt-dlp";
 const ffmpegBin = process.env.FFMPEG_BIN?.trim() || "ffmpeg";
 let ytdlpCookiesPath = process.env.YTDLP_COOKIES_PATH?.trim() || "";
 const ytdlpProxy = process.env.YTDLP_PROXY?.trim();
-const ytdlpExtractorArgs = process.env.YTDLP_EXTRACTOR_ARGS?.trim() || "youtube:player_client=android_vr,ios,web";
+const ytdlpExtractorArgs = process.env.YTDLP_EXTRACTOR_ARGS?.trim() || "youtube:player_client=android_vr";
 const youtubeFallbackClients = getYoutubeFallbackClients(process.env.YTDLP_YOUTUBE_FALLBACK_CLIENTS);
 const streamDownloads = process.env.STREAM_DOWNLOADS === "true";
 const allowedOrigins = getAllowedOrigins(process.env.ALLOWED_ORIGINS ?? process.env.FRONTEND_ORIGIN);
@@ -216,7 +216,7 @@ async function handleDownloadRequest(
   try {
     const { url, type, quality = "best" } = downloadSchema.parse(input);
 
-    if (options.forceStream || streamDownloads) {
+    if (options.forceStream || streamDownloads || (isProduction && type === "video")) {
       await streamDownload(url, type, quality, res);
       return;
     }
@@ -460,7 +460,7 @@ async function getVideoInfo(url: string): Promise<VideoInfo> {
 }
 
 async function getVideoInfoWithYtDlp(url: string): Promise<VideoInfo> {
-  const { stdout } = await runYtDlpAttempts(buildInfoAttempts(url), 90 * 1000);
+  const { stdout } = await runYtDlpAttempts(buildInfoAttempts(url), 25 * 1000);
 
   let rawInfo: YtDlpOutput;
 
@@ -883,7 +883,7 @@ async function streamVideoDownload(url: string, quality: string, res: Response, 
       await streamChildStdout(child, res, {
         contentType: getDownloadContentType("video"),
         fileName,
-        firstByteTimeoutMs: 90 * 1000,
+        firstByteTimeoutMs: 35 * 1000,
         stderrLabel: "yt-dlp"
       });
       return;
@@ -1129,7 +1129,7 @@ function sanitizeFileName(value: string, fallback: string): string {
 }
 
 function getYoutubeFallbackClients(value: string | undefined): string[] {
-  const rawClients = value?.trim() || "android_vr,android,web_embedded,mweb,web_safari,web";
+  const rawClients = value?.trim() || "android_vr,android";
   const clients = rawClients
     .split(",")
     .map((client) => client.trim())

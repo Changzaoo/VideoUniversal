@@ -27,9 +27,9 @@ services:
       - key: YTDLP_PROXY
         sync: false
       - key: YTDLP_EXTRACTOR_ARGS
-        value: "youtube:player_client=android_vr,ios,web"
+        value: "youtube:player_client=android_vr"
       - key: YTDLP_YOUTUBE_FALLBACK_CLIENTS
-        value: "android_vr,android,web_embedded,mweb,web_safari,web"
+        value: "android_vr,android"
       - key: BGUTIL_POT_PROVIDER
         value: "true"
       - key: BGUTIL_PORT

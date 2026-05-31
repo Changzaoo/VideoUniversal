@@ -57,8 +57,8 @@ YTDLP_COOKIES_PATH=
 YTDLP_COOKIES_BASE64=
 YTDLP_COOKIES_CONTENT=
 YTDLP_PROXY=
-YTDLP_EXTRACTOR_ARGS=youtube:player_client=android_vr,ios,web
-YTDLP_YOUTUBE_FALLBACK_CLIENTS=android_vr,android,web_embedded,mweb,web_safari,web
+YTDLP_EXTRACTOR_ARGS=youtube:player_client=android_vr
+YTDLP_YOUTUBE_FALLBACK_CLIENTS=android_vr,android
 BGUTIL_POT_PROVIDER=true
 BGUTIL_PORT=4416
 ADMIN_TOKEN=
