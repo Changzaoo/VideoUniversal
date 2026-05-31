@@ -28,6 +28,12 @@ services:
         sync: false
       - key: YTDLP_EXTRACTOR_ARGS
         value: "youtube:player_client=android_vr,ios,web"
+      - key: YTDLP_YOUTUBE_FALLBACK_CLIENTS
+        value: "android_vr,android,web_embedded,mweb,web_safari,web"
+      - key: BGUTIL_POT_PROVIDER
+        value: "true"
+      - key: BGUTIL_PORT
+        value: "4416"
       - key: ALLOWED_ORIGINS
         value: "https://videouniversal.vercel.app"
       - key: ADMIN_TOKEN

@@ -23,6 +23,7 @@ const ffmpegBin = process.env.FFMPEG_BIN?.trim() || "ffmpeg";
 let ytdlpCookiesPath = process.env.YTDLP_COOKIES_PATH?.trim() || "";
 const ytdlpProxy = process.env.YTDLP_PROXY?.trim();
 const ytdlpExtractorArgs = process.env.YTDLP_EXTRACTOR_ARGS?.trim() || "youtube:player_client=android_vr,ios,web";
+const youtubeFallbackClients = getYoutubeFallbackClients(process.env.YTDLP_YOUTUBE_FALLBACK_CLIENTS);
 const streamDownloads = process.env.STREAM_DOWNLOADS === "true";
 const allowedOrigins = getAllowedOrigins(process.env.ALLOWED_ORIGINS ?? process.env.FRONTEND_ORIGIN);
 const browserUserAgent =
@@ -94,6 +95,21 @@ type OEmbedOutput = {
   title?: unknown;
   author_name?: unknown;
   thumbnail_url?: unknown;
+};
+
+type YtDlpArgOptions = {
+  extractorArgs?: string | null;
+  extraExtractorArgs?: string[];
+};
+
+type YtDlpAttempt = {
+  label: string;
+  args: string[];
+};
+
+type FileDownloadAttempt = YtDlpAttempt & {
+  directory: string;
+  preferredExtension: ".mp3" | ".mp4";
 };
 
 class HttpError extends Error {
@@ -208,32 +224,8 @@ async function handleDownloadRequest(
     await fs.mkdir(tempDir, { recursive: true });
 
     const info = await getVideoInfo(url);
-    const outputTemplate = path.join(tempDir, "download.%(ext)s");
-    const args =
-      type === "video"
-        ? buildYtDlpArgs(url, [
-            "--format",
-            getVideoFormat(quality),
-            "--merge-output-format",
-            "mp4",
-            "--remux-video",
-            "mp4",
-            "--output",
-            outputTemplate
-          ])
-        : buildYtDlpArgs(url, [
-            "--extract-audio",
-            "--audio-format",
-            "mp3",
-            "--audio-quality",
-            "0",
-            "--output",
-            outputTemplate
-          ]);
-
-    await runYtDlp(args, 10 * 60 * 1000);
-
-    const downloadedFile = await findDownloadedFile(tempDir, type === "video" ? ".mp4" : ".mp3");
+    const attempt = await runFileDownloadAttempts(buildFileDownloadAttempts(url, type, quality, tempDir), 10 * 60 * 1000);
+    const downloadedFile = await findDownloadedFile(attempt.directory, attempt.preferredExtension);
     const downloadName = buildDownloadFileName(info?.title ?? null, type);
 
     res.download(downloadedFile, downloadName, async (error) => {
@@ -530,7 +522,134 @@ async function getYoutubeOEmbedInfo(url: string): Promise<VideoInfo | null> {
   }
 }
 
-function buildYtDlpArgs(url: string, operationArgs: string[]): string[] {
+function buildFileDownloadAttempts(
+  url: string,
+  type: "video" | "audio",
+  quality: string,
+  tempDir: string
+): FileDownloadAttempt[] {
+  const variants = getYtDlpExtractorVariants(url);
+
+  return variants.flatMap((variant, variantIndex) => {
+    const attemptDir = path.join(tempDir, `attempt-${variantIndex + 1}`);
+    const outputTemplate = path.join(attemptDir, "download.%(ext)s");
+
+    if (type === "audio") {
+      return [
+        {
+          label: `${variant.label} audio mp3`,
+          directory: attemptDir,
+          preferredExtension: ".mp3" as const,
+          args: buildYtDlpArgs(
+            url,
+            ["--extract-audio", "--audio-format", "mp3", "--audio-quality", "0", "--output", outputTemplate],
+            variant.options
+          )
+        }
+      ];
+    }
+
+    const attempts: FileDownloadAttempt[] = [
+      {
+        label: `${variant.label} video mp4 merged`,
+        directory: attemptDir,
+        preferredExtension: ".mp4",
+        args: buildYtDlpArgs(
+          url,
+          [
+            "--format",
+            getVideoFormat(quality),
+            "--merge-output-format",
+            "mp4",
+            "--remux-video",
+            "mp4",
+            "--output",
+            outputTemplate
+          ],
+          variant.options
+        )
+      },
+      {
+        label: `${variant.label} video mp4 progressive`,
+        directory: attemptDir,
+        preferredExtension: ".mp4",
+        args: buildYtDlpArgs(
+          url,
+          ["--format", getProgressiveVideoFormat(quality), "--remux-video", "mp4", "--output", outputTemplate],
+          variant.options
+        )
+      }
+    ];
+
+    return attempts;
+  });
+}
+
+async function runFileDownloadAttempts(attempts: FileDownloadAttempt[], timeoutMs: number): Promise<FileDownloadAttempt> {
+  let lastError: unknown = null;
+
+  for (let index = 0; index < attempts.length; index += 1) {
+    const attempt = attempts[index]!;
+    await fs.mkdir(attempt.directory, { recursive: true });
+
+    try {
+      console.log(`yt-dlp tentativa ${index + 1}/${attempts.length}: ${attempt.label}`);
+      await runYtDlp(attempt.args, timeoutMs);
+      return attempt;
+    } catch (error) {
+      lastError = error;
+      console.warn(`yt-dlp falhou na tentativa ${index + 1}/${attempts.length}: ${attempt.label}`, {
+        message: error instanceof Error ? error.message : String(error)
+      });
+      await cleanupTempDir(attempt.directory);
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new HttpError(502, "Nao foi possivel concluir o download com yt-dlp.");
+}
+
+function getYtDlpExtractorVariants(url: string): Array<{ label: string; options: YtDlpArgOptions }> {
+  if (!getYoutubeVideoId(url)) {
+    return [{ label: "padrao", options: {} }];
+  }
+
+  const variants: Array<{ label: string; options: YtDlpArgOptions }> = [
+    { label: "youtube padrao", options: {} }
+  ];
+
+  for (const client of youtubeFallbackClients) {
+    variants.push({
+      label: `youtube ${client}`,
+      options: {
+        extractorArgs: `youtube:player_client=${client}`
+      }
+    });
+  }
+
+  return dedupeExtractorVariants(variants);
+}
+
+function dedupeExtractorVariants(
+  variants: Array<{ label: string; options: YtDlpArgOptions }>
+): Array<{ label: string; options: YtDlpArgOptions }> {
+  const seen = new Set<string>();
+  const output: Array<{ label: string; options: YtDlpArgOptions }> = [];
+
+  for (const variant of variants) {
+    const key = `${variant.options.extractorArgs ?? ytdlpExtractorArgs}|${variant.options.extraExtractorArgs?.join("|") ?? ""}`;
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    output.push(variant);
+  }
+
+  return output;
+}
+
+function buildYtDlpArgs(url: string, operationArgs: string[], options: YtDlpArgOptions = {}): string[] {
   const args = [
     "--no-warnings",
     "--no-playlist",
@@ -561,8 +680,16 @@ function buildYtDlpArgs(url: string, operationArgs: string[]): string[] {
     args.push("--proxy", ytdlpProxy);
   }
 
-  if (ytdlpExtractorArgs) {
-    args.push("--extractor-args", ytdlpExtractorArgs);
+  const extractorArgs = Object.hasOwn(options, "extractorArgs") ? options.extractorArgs : ytdlpExtractorArgs;
+
+  if (extractorArgs) {
+    args.push("--extractor-args", extractorArgs);
+  }
+
+  for (const extraExtractorArgs of options.extraExtractorArgs ?? []) {
+    if (extraExtractorArgs) {
+      args.push("--extractor-args", extraExtractorArgs);
+    }
   }
 
   return [...args, ...operationArgs, url];
@@ -678,17 +805,7 @@ async function streamDownload(url: string, type: "video" | "audio", quality: str
   const fileName = buildDownloadFileName(info?.title ?? null, type);
 
   if (type === "video") {
-    const child = spawn(ytdlpBin, getStreamingVideoArgs(url, quality), {
-      shell: false,
-      windowsHide: true
-    });
-
-    await streamChildStdout(child, res, {
-      contentType: getDownloadContentType(type),
-      fileName,
-      firstByteTimeoutMs: 90 * 1000,
-      stderrLabel: "yt-dlp"
-    });
+    await streamVideoDownload(url, quality, res, fileName);
     return;
   }
 
@@ -726,13 +843,56 @@ async function streamDownload(url: string, type: "video" | "audio", quality: str
   });
 }
 
-function getStreamingVideoArgs(url: string, quality: string): string[] {
+async function streamVideoDownload(url: string, quality: string, res: Response, fileName: string): Promise<void> {
+  const attempts = buildStreamingVideoAttempts(url, quality);
+  let lastError: unknown = null;
+
+  for (let index = 0; index < attempts.length; index += 1) {
+    const attempt = attempts[index]!;
+    const child = spawn(ytdlpBin, attempt.args, {
+      shell: false,
+      windowsHide: true
+    });
+
+    try {
+      console.log(`yt-dlp stream tentativa ${index + 1}/${attempts.length}: ${attempt.label}`);
+      await streamChildStdout(child, res, {
+        contentType: getDownloadContentType("video"),
+        fileName,
+        firstByteTimeoutMs: 90 * 1000,
+        stderrLabel: "yt-dlp"
+      });
+      return;
+    } catch (error) {
+      lastError = error;
+
+      if (res.headersSent) {
+        throw error;
+      }
+
+      console.warn(`yt-dlp stream falhou na tentativa ${index + 1}/${attempts.length}: ${attempt.label}`, {
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new HttpError(502, "Nao foi possivel iniciar o download com yt-dlp.");
+}
+
+function buildStreamingVideoAttempts(url: string, quality: string): YtDlpAttempt[] {
+  return getYtDlpExtractorVariants(url).map((variant) => ({
+    label: `${variant.label} video stream mp4 progressive`,
+    args: getStreamingVideoArgs(url, quality, variant.options)
+  }));
+}
+
+function getStreamingVideoArgs(url: string, quality: string, options: YtDlpArgOptions = {}): string[] {
   return buildYtDlpArgs(url, [
     "--format",
     getStreamingVideoFormat(quality),
     "--output",
     "-"
-  ]);
+  ], options);
 }
 
 function getStreamingAudioArgs(url: string): string[] {
@@ -772,6 +932,7 @@ function streamChildStdout(
 
       if (res.headersSent) {
         res.destroy(error);
+        resolve();
         return;
       }
 
@@ -832,6 +993,7 @@ function streamChildStdout(
 
       if (res.headersSent) {
         res.destroy(new Error(message));
+        resolve();
         return;
       }
 
@@ -942,6 +1104,16 @@ function sanitizeFileName(value: string, fallback: string): string {
   return cleaned;
 }
 
+function getYoutubeFallbackClients(value: string | undefined): string[] {
+  const rawClients = value?.trim() || "android_vr,android,web_embedded,mweb,web_safari,web";
+  const clients = rawClients
+    .split(",")
+    .map((client) => client.trim())
+    .filter(Boolean);
+
+  return Array.from(new Set(clients));
+}
+
 function getVideoFormat(quality: string): string {
   if (quality === "best") {
     return "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best";
@@ -956,18 +1128,22 @@ function getVideoFormat(quality: string): string {
   return `bv*[height<=${maxHeight}][ext=mp4]+ba[ext=m4a]/b[height<=${maxHeight}][ext=mp4]/best[height<=${maxHeight}]/best`;
 }
 
-function getStreamingVideoFormat(quality: string): string {
+function getProgressiveVideoFormat(quality: string): string {
   if (quality === "best") {
-    return "b[ext=mp4]/best[ext=mp4]/b/best";
+    return "b[ext=mp4]/18/best[ext=mp4]";
   }
 
   const maxHeight = Number.parseInt(quality, 10);
 
   if (!Number.isFinite(maxHeight)) {
-    return "b[ext=mp4]/best[ext=mp4]/b/best";
+    return "b[ext=mp4]/18/best[ext=mp4]";
   }
 
-  return `b[height<=${maxHeight}][ext=mp4]/best[height<=${maxHeight}][ext=mp4]/b[ext=mp4]/best[ext=mp4]/b/best`;
+  return `b[height<=${maxHeight}][ext=mp4]/18/b[ext=mp4]/best[ext=mp4]`;
+}
+
+function getStreamingVideoFormat(quality: string): string {
+  return getProgressiveVideoFormat(quality);
 }
 
 function getYoutubeVideoId(value: string): string | null {
