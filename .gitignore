@@ -13,6 +13,7 @@ secrets.json
 config.json
 cookies.txt
 *.cookies.txt
+*.cookies.base64.txt
 
 backend/downloads/
 backend/*.log

@@ -156,6 +156,14 @@ YTDLP_COOKIES_BASE64=valor_copiado_do_comando
 
 Ao iniciar, o backend grava esses cookies em `/tmp/yt-dlp-cookies.txt` e passa o arquivo ao `yt-dlp`. Se o YouTube continuar bloqueando IPs de datacenter, configure tambem um proxy autorizado com `YTDLP_PROXY`.
 
+Se quiser exportar cookies do navegador local sem imprimir o segredo no terminal, feche totalmente Brave/Edge e rode:
+
+```powershell
+.\scripts\export-youtube-cookies.ps1 -Browser brave -Profile Default
+```
+
+O script cria `youtube.cookies.txt`, cria `youtube.cookies.base64.txt` e copia o base64 para a area de transferencia. Esses arquivos ficam ignorados pelo Git.
+
 O Dockerfile tambem instala o provider `bgutil-ytdlp-pot-provider` e inicia o servidor local de PO Token na porta `4416` por padrao. Isso ajuda o `yt-dlp` quando o YouTube exige Proof-of-Origin Token para alguns clientes/formatos. Se o Render continuar recebendo bloqueio de IP, use cookies reais exportados de uma sessao autorizada e/ou um proxy autorizado; cookies placeholder de consentimento normalmente nao bastam.
 
 ## Aviso de uso

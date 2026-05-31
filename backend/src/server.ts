@@ -251,24 +251,32 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     return;
   }
 
+  const directDownloadError = isDirectDownloadDocumentRequest(_req);
+
   if (isJsonParseError(error)) {
-    res.status(400).json({ error: "JSON invalido." });
+    sendErrorResponse(_req, res, 400, "JSON invalido.", directDownloadError);
     return;
   }
 
   if (error instanceof z.ZodError) {
-    res.status(400).json({ error: error.issues[0]?.message ?? "Dados invalidos." });
+    sendErrorResponse(_req, res, 400, error.issues[0]?.message ?? "Dados invalidos.", directDownloadError);
     return;
   }
 
   if (error instanceof HttpError) {
-    res.status(error.status).json({ error: error.message });
+    sendErrorResponse(_req, res, error.status, error.message, directDownloadError);
     return;
   }
 
   logUnexpectedError(error);
   const message = error instanceof Error ? error.message : "Erro inesperado.";
-  res.status(500).json({ error: isProduction ? "Erro interno no servidor." : normalizeYtDlpError(message) });
+  sendErrorResponse(
+    _req,
+    res,
+    500,
+    isProduction ? "Erro interno no servidor." : normalizeYtDlpError(message),
+    directDownloadError
+  );
 });
 
 await prepareYtDlpCookiesFile();
@@ -443,6 +451,57 @@ function logUnexpectedError(error: unknown): void {
   }
 
   console.error("Erro inesperado no servidor", { error });
+}
+
+function isDirectDownloadDocumentRequest(req: Request): boolean {
+  return req.method === "GET" && req.path === "/api/download" && req.accepts(["html", "json"]) === "html";
+}
+
+function sendErrorResponse(
+  req: Request,
+  res: Response,
+  status: number,
+  message: string,
+  asHtml = false
+): void {
+  if (!asHtml) {
+    res.status(status).json({ error: message });
+    return;
+  }
+
+  const frontendOrigin = process.env.FRONTEND_ORIGIN?.trim() || "https://videouniversal.vercel.app";
+  const retryUrl = new URL(frontendOrigin);
+  const requestedUrl = typeof req.query.url === "string" ? req.query.url : "";
+
+  if (requestedUrl) {
+    retryUrl.searchParams.set("url", requestedUrl);
+  }
+
+  res
+    .status(status)
+    .type("html")
+    .send(`<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Video Universal</title>
+    <style>
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #11151c; color: #f8fafc; font-family: Arial, sans-serif; }
+      main { width: min(560px, calc(100vw - 32px)); padding: 28px; border: 1px solid rgba(248, 113, 113, 0.55); border-radius: 10px; background: rgba(127, 29, 29, 0.28); }
+      h1 { margin: 0 0 12px; font-size: 24px; }
+      p { margin: 0 0 20px; line-height: 1.55; color: #fecaca; }
+      a { display: inline-block; color: white; background: #2563eb; padding: 11px 16px; border-radius: 8px; text-decoration: none; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Nao foi possivel iniciar o download</h1>
+      <p>${escapeHtml(message)}</p>
+      <a href="${escapeHtml(retryUrl.toString())}">Voltar ao Video Universal</a>
+    </main>
+  </body>
+</html>`);
 }
 
 async function getVideoInfo(url: string): Promise<VideoInfo> {
@@ -1083,6 +1142,25 @@ function sanitizeAsciiFileName(value: string, fallback: string): string {
 
 function escapeHeaderQuotedString(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => {
+    switch (character) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      case "'":
+        return "&#39;";
+      default:
+        return character;
+    }
+  });
 }
 
 function encodeRfc5987Value(value: string): string {
