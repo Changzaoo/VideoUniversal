@@ -48,7 +48,9 @@ Voce pode copiar `.env.example` para `.env` se quiser ajustar variaveis:
 
 ```env
 PORT=3333
+HOST=0.0.0.0
 YTDLP_BIN=yt-dlp
+FRONTEND_ORIGIN=http://localhost:5173,https://video-url-downloader.vercel.app
 ```
 
 ## Rodar o frontend
@@ -88,6 +90,35 @@ $env:VITE_API_BASE_URL="http://localhost:3334/api"; npm run dev
 Para video, `quality` e opcional. Valores aceitos: `best`, `2160p`, `1440p`, `1080p`, `720p`, `480p` e `360p`.
 
 O backend aceita apenas URLs `http` e `https`, usa `--no-playlist` por padrao e chama `yt-dlp` com `spawn`, sem `exec` com strings.
+
+## Deploy do backend no Render
+
+O repositorio inclui:
+
+- `render.yaml` na raiz, com um Web Service Docker chamado `videouniversal-backend`.
+- `backend/Dockerfile`, que instala Node.js, Python, `yt-dlp` e FFmpeg.
+- Health check em `/api/health`.
+
+No Render:
+
+1. Abra o Dashboard do Render.
+2. Clique em **New +**.
+3. Escolha **Blueprint**.
+4. Conecte o repositorio `Changzaoo/VideoUniversal`.
+5. Confirme o `render.yaml`.
+6. Depois do deploy, a API deve ficar em algo como:
+
+```text
+https://videouniversal-backend.onrender.com/api/health
+```
+
+Quando a URL final do Render estiver pronta, configure o frontend na Vercel com:
+
+```env
+VITE_API_BASE_URL=https://SUA-URL-DO-RENDER/api
+```
+
+Depois faca redeploy do frontend na Vercel.
 
 ## Aviso de uso
 

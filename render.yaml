@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: videouniversal-backend
+    runtime: docker
+    repo: https://github.com/Changzaoo/VideoUniversal
+    branch: main
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 10000
+      - key: YTDLP_BIN
+        value: yt-dlp
+      - key: FRONTEND_ORIGIN
+        value: https://video-url-downloader.vercel.app,http://localhost:5173

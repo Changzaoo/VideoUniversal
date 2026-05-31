@@ -14,7 +14,12 @@ dotenv.config();
 
 const app = express();
 const port = Number(process.env.PORT ?? 3333);
+const host = process.env.HOST ?? "0.0.0.0";
 const ytdlpBin = process.env.YTDLP_BIN?.trim() || "yt-dlp";
+const corsOrigins = (process.env.FRONTEND_ORIGIN ?? "http://localhost:5173")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -73,7 +78,7 @@ class HttpError extends Error {
 
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: corsOrigins,
     exposedHeaders: ["Content-Disposition"]
   })
 );
@@ -178,8 +183,8 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
 
 await fs.mkdir(downloadsDir, { recursive: true });
 
-app.listen(port, () => {
-  console.log(`API online em http://localhost:${port}`);
+app.listen(port, host, () => {
+  console.log(`API online em http://${host}:${port}`);
 });
 
 async function getVideoInfo(url: string): Promise<VideoInfo> {
