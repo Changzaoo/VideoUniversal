@@ -22,7 +22,9 @@ const ytdlpBin = process.env.YTDLP_BIN?.trim() || "yt-dlp";
 const ffmpegBin = process.env.FFMPEG_BIN?.trim() || "ffmpeg";
 let ytdlpCookiesPath = process.env.YTDLP_COOKIES_PATH?.trim() || "";
 const ytdlpProxy = process.env.YTDLP_PROXY?.trim();
+const hasConfiguredCookies = hasYtDlpCookiesConfig();
 const ytdlpExtractorArgs = process.env.YTDLP_EXTRACTOR_ARGS?.trim() || "youtube:player_client=android_vr";
+const ytdlpRemoteComponents = process.env.YTDLP_REMOTE_COMPONENTS?.trim() || (hasConfiguredCookies ? "ejs:github" : "");
 const youtubeFallbackClients = getYoutubeFallbackClients(process.env.YTDLP_YOUTUBE_FALLBACK_CLIENTS);
 const streamDownloads = process.env.STREAM_DOWNLOADS === "true";
 const allowedOrigins = getAllowedOrigins(process.env.ALLOWED_ORIGINS ?? process.env.FRONTEND_ORIGIN);
@@ -696,9 +698,13 @@ function getYtDlpExtractorVariants(url: string): Array<{ label: string; options:
     return [{ label: "padrao", options: {} }];
   }
 
-  const variants: Array<{ label: string; options: YtDlpArgOptions }> = [
-    { label: "youtube padrao", options: {} }
-  ];
+  const variants: Array<{ label: string; options: YtDlpArgOptions }> = [];
+
+  if (hasConfiguredCookies) {
+    variants.push({ label: "youtube cookies", options: { extractorArgs: null } });
+  }
+
+  variants.push({ label: "youtube padrao", options: {} });
 
   for (const client of youtubeFallbackClients) {
     variants.push({
@@ -763,6 +769,10 @@ function buildYtDlpArgs(url: string, operationArgs: string[], options: YtDlpArgO
     args.push("--proxy", ytdlpProxy);
   }
 
+  if (ytdlpRemoteComponents) {
+    args.push("--remote-components", ytdlpRemoteComponents);
+  }
+
   const extractorArgs = Object.hasOwn(options, "extractorArgs") ? options.extractorArgs : ytdlpExtractorArgs;
 
   if (extractorArgs) {
@@ -795,6 +805,16 @@ async function prepareYtDlpCookiesFile(): Promise<void> {
   await fs.chmod(cookiesPath, 0o600).catch(() => undefined);
   ytdlpCookiesPath = cookiesPath;
   console.log(`Cookies do yt-dlp carregados em ${cookiesPath}.`);
+}
+
+function hasYtDlpCookiesConfig(): boolean {
+  return Boolean(
+    ytdlpCookiesPath ||
+      process.env.YTDLP_COOKIES_BASE64?.trim() ||
+      process.env.YTDLP_COOKIES_B64?.trim() ||
+      process.env.YTDLP_COOKIES_CONTENT?.trim() ||
+      process.env.YTDLP_COOKIES?.trim()
+  );
 }
 
 function getConfiguredCookiesContent(): string | null {
@@ -1232,16 +1252,16 @@ function getVideoFormat(quality: string): string {
 
 function getProgressiveVideoFormat(quality: string): string {
   if (quality === "best") {
-    return "b[ext=mp4]/18/best[ext=mp4]";
+    return "18/b[ext=mp4][protocol=https]/b[ext=mp4]/best[ext=mp4]";
   }
 
   const maxHeight = Number.parseInt(quality, 10);
 
   if (!Number.isFinite(maxHeight)) {
-    return "b[ext=mp4]/18/best[ext=mp4]";
+    return "18/b[ext=mp4][protocol=https]/b[ext=mp4]/best[ext=mp4]";
   }
 
-  return `b[height<=${maxHeight}][ext=mp4]/18/b[ext=mp4]/best[ext=mp4]`;
+  return `18/b[height<=${maxHeight}][ext=mp4][protocol=https]/b[height<=${maxHeight}][ext=mp4]/b[ext=mp4][protocol=https]/b[ext=mp4]/best[ext=mp4]`;
 }
 
 function getStreamingVideoFormat(quality: string): string {

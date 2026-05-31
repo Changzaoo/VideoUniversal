@@ -28,6 +28,8 @@ services:
         sync: false
       - key: YTDLP_EXTRACTOR_ARGS
         value: "youtube:player_client=android_vr"
+      - key: YTDLP_REMOTE_COMPONENTS
+        value: "ejs:github"
       - key: YTDLP_YOUTUBE_FALLBACK_CLIENTS
         value: "android_vr,android"
       - key: BGUTIL_POT_PROVIDER
