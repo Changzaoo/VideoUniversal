@@ -1,4 +1,5 @@
 import cors from "cors";
+import type { CorsOptions } from "cors";
 import dotenv from "dotenv";
 import express, { type NextFunction, type Request, type Response } from "express";
 import rateLimit from "express-rate-limit";
@@ -16,10 +17,22 @@ const app = express();
 const port = Number(process.env.PORT ?? 3333);
 const host = process.env.HOST ?? "0.0.0.0";
 const ytdlpBin = process.env.YTDLP_BIN?.trim() || "yt-dlp";
-const corsOrigins = (process.env.FRONTEND_ORIGIN ?? "http://localhost:5173")
+const corsOrigins = (process.env.FRONTEND_ORIGIN ?? "http://localhost:5173,https://videouniversal.vercel.app")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
+const corsOptions: CorsOptions = {
+  origin(origin, callback) {
+    if (!origin || corsOrigins.includes(origin) || /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new HttpError(403, "Origem nao permitida pelo CORS."));
+  },
+  exposedHeaders: ["Content-Disposition"],
+  optionsSuccessStatus: 204
+};
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -76,12 +89,8 @@ class HttpError extends Error {
   }
 }
 
-app.use(
-  cors({
-    origin: corsOrigins,
-    exposedHeaders: ["Content-Disposition"]
-  })
-);
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 app.use(express.json({ limit: "1mb" }));
 app.use(morgan("dev"));
 app.use(
