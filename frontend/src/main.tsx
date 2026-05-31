@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "https://videouniversal-backend.onrender.com/api";
+const SIMPLE_POST_HEADERS = { "Content-Type": "text/plain;charset=UTF-8" };
 
 type DownloadType = "video" | "audio";
 type VideoQuality = "best" | "2160p" | "1440p" | "1080p" | "720p" | "480p" | "360p";
@@ -78,7 +79,7 @@ function App() {
     try {
       const response = await fetch(`${API_BASE_URL}/info`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: SIMPLE_POST_HEADERS,
         body: JSON.stringify({ url: url.trim() })
       });
 
@@ -123,7 +124,7 @@ function App() {
     try {
       const response = await fetch(`${API_BASE_URL}/download`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: SIMPLE_POST_HEADERS,
         body: JSON.stringify({ url: url.trim(), type, quality: type === "video" ? quality : undefined })
       });
 

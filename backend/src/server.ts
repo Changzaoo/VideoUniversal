@@ -93,6 +93,7 @@ class HttpError extends Error {
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 app.use(express.json({ limit: "1mb" }));
+app.use(express.text({ type: "text/plain", limit: "1mb" }));
 app.use(morgan("dev"));
 app.use(
   "/api",
@@ -111,7 +112,7 @@ app.get("/api/health", (_req, res) => {
 
 app.post("/api/info", async (req, res, next) => {
   try {
-    const { url } = infoSchema.parse(req.body);
+    const { url } = infoSchema.parse(parseRequestBody(req.body));
     const info = await getVideoInfo(url);
     res.json(info);
   } catch (error) {
@@ -123,7 +124,7 @@ app.post("/api/download", async (req, res, next) => {
   const tempDir = path.join(downloadsDir, nanoid());
 
   try {
-    const { url, type, quality = "best" } = downloadSchema.parse(req.body);
+    const { url, type, quality = "best" } = downloadSchema.parse(parseRequestBody(req.body));
 
     if (streamDownloads) {
       await streamDownload(url, type, quality, res);
@@ -276,7 +277,8 @@ async function streamDownload(url: string, type: "video" | "audio", quality: str
   const fileName = `videouniversal-download.${extension}`;
 
   if (type === "video") {
-    const child = spawn(ytdlpBin, getStreamingVideoArgs(url, quality), {
+    const urls = await getVideoDirectUrls(url, quality);
+    const child = spawn("ffmpeg", getStreamingVideoFfmpegArgs(urls), {
       shell: false,
       windowsHide: true
     });
@@ -339,6 +341,62 @@ function getStreamingVideoArgs(url: string, quality: string): string[] {
     "--output",
     "-",
     url
+  ];
+}
+
+async function getVideoDirectUrls(url: string, quality: string): Promise<string[]> {
+  const { stdout } = await runYtDlp(
+    [
+      "--no-playlist",
+      "--no-warnings",
+      "--socket-timeout",
+      "20",
+      "--retries",
+      "3",
+      "--fragment-retries",
+      "3",
+      "--get-url",
+      "--format",
+      getMuxedVideoFormat(quality),
+      url
+    ],
+    90 * 1000
+  );
+
+  const urls = stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /^https?:\/\//i.test(line));
+
+  if (!urls.length) {
+    throw new HttpError(502, "Nao foi possivel obter o stream direto do video.");
+  }
+
+  return urls.slice(0, 2);
+}
+
+function getStreamingVideoFfmpegArgs(urls: string[]): string[] {
+  const reconnectArgs = ["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5"];
+  const inputArgs = urls.flatMap((streamUrl) => [...reconnectArgs, "-i", streamUrl]);
+  const mapArgs = urls.length > 1 ? ["-map", "0:v:0", "-map", "1:a:0"] : ["-map", "0:v:0", "-map", "0:a:0?"];
+
+  return [
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    ...inputArgs,
+    ...mapArgs,
+    "-c:v",
+    "copy",
+    "-c:a",
+    "aac",
+    "-b:a",
+    "160k",
+    "-movflags",
+    "frag_keyframe+empty_moov+default_base_moof",
+    "-f",
+    "mp4",
+    "pipe:1"
   ];
 }
 
@@ -522,6 +580,32 @@ function getStreamingVideoFormat(quality: string): string {
   }
 
   return `b[height<=${maxHeight}][ext=mp4][vcodec!=none][acodec!=none]/best[height<=${maxHeight}][ext=mp4][vcodec!=none][acodec!=none]`;
+}
+
+function getMuxedVideoFormat(quality: string): string {
+  if (quality === "best") {
+    return "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best[ext=mp4]/bv*+ba/best";
+  }
+
+  const maxHeight = Number.parseInt(quality, 10);
+
+  if (!Number.isFinite(maxHeight)) {
+    return "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best[ext=mp4]/bv*+ba/best";
+  }
+
+  return `bv*[height<=${maxHeight}][ext=mp4]+ba[ext=m4a]/b[height<=${maxHeight}][ext=mp4]/best[height<=${maxHeight}][ext=mp4]/bv*[height<=${maxHeight}]+ba/best[height<=${maxHeight}]`;
+}
+
+function parseRequestBody(body: unknown): unknown {
+  if (typeof body !== "string") {
+    return body;
+  }
+
+  try {
+    return JSON.parse(body) as unknown;
+  } catch {
+    throw new HttpError(400, "JSON invalido.");
+  }
 }
 
 function appendLimited(current: string, next: string, limit: number): string {
