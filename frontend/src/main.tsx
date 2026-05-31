@@ -316,14 +316,16 @@ async function downloadFile(
   type: DownloadType,
   quality: VideoQuality
 ): Promise<DownloadResult> {
-  if (type === "video" && !isNgrokApiBaseUrl(apiBaseUrl)) {
+  const canUseDirectDownload = !isNgrokApiBaseUrl(apiBaseUrl);
+
+  if (type === "video" && canUseDirectDownload) {
     startDirectDownload(buildDownloadUrl(apiBaseUrl, url, type, quality));
     return "direct";
   }
 
-  const info = await getVideoInfo(apiBaseUrl, url).catch(() => null);
+  const info = canUseDirectDownload ? await getVideoInfo(apiBaseUrl, url).catch(() => null) : null;
 
-  if (shouldUseDirectDownload(info, type)) {
+  if (canUseDirectDownload && shouldUseDirectDownload(info, type)) {
     startDirectDownload(buildDownloadUrl(apiBaseUrl, url, type, quality));
     return "direct";
   }
