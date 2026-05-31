@@ -22,6 +22,12 @@ services:
         value: "false"
       - key: FFMPEG_BIN
         value: "ffmpeg"
+      - key: YTDLP_COOKIES_BASE64
+        sync: false
+      - key: YTDLP_PROXY
+        sync: false
+      - key: YTDLP_EXTRACTOR_ARGS
+        value: "youtube:player_client=android_vr,ios,web"
       - key: ALLOWED_ORIGINS
         value: "https://videouniversal.vercel.app"
       - key: ADMIN_TOKEN

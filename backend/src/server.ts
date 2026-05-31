@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import express, { type NextFunction, type Request, type Response } from "express";
 import rateLimit from "express-rate-limit";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -19,7 +20,7 @@ const port = Number(process.env.PORT ?? 3333);
 const host = process.env.HOST ?? "0.0.0.0";
 const ytdlpBin = process.env.YTDLP_BIN?.trim() || "yt-dlp";
 const ffmpegBin = process.env.FFMPEG_BIN?.trim() || "ffmpeg";
-const ytdlpCookiesPath = process.env.YTDLP_COOKIES_PATH?.trim();
+let ytdlpCookiesPath = process.env.YTDLP_COOKIES_PATH?.trim() || "";
 const ytdlpProxy = process.env.YTDLP_PROXY?.trim();
 const ytdlpExtractorArgs = process.env.YTDLP_EXTRACTOR_ARGS?.trim() || "youtube:player_client=android_vr,ios,web";
 const streamDownloads = process.env.STREAM_DOWNLOADS === "true";
@@ -278,6 +279,7 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: isProduction ? "Erro interno no servidor." : normalizeYtDlpError(message) });
 });
 
+await prepareYtDlpCookiesFile();
 await fs.mkdir(downloadsDir, { recursive: true });
 
 app.listen(port, host, () => {
@@ -564,6 +566,59 @@ function buildYtDlpArgs(url: string, operationArgs: string[]): string[] {
   }
 
   return [...args, ...operationArgs, url];
+}
+
+async function prepareYtDlpCookiesFile(): Promise<void> {
+  const cookiesContent = getConfiguredCookiesContent();
+
+  if (!cookiesContent) {
+    if (ytdlpCookiesPath) {
+      await warnIfCookiesFileIsMissing(ytdlpCookiesPath);
+    }
+
+    return;
+  }
+
+  const cookiesPath = ytdlpCookiesPath || path.join(os.tmpdir(), "yt-dlp-cookies.txt");
+  await fs.mkdir(path.dirname(cookiesPath), { recursive: true });
+  await fs.writeFile(cookiesPath, cookiesContent, { encoding: "utf8", mode: 0o600 });
+  await fs.chmod(cookiesPath, 0o600).catch(() => undefined);
+  ytdlpCookiesPath = cookiesPath;
+  console.log(`Cookies do yt-dlp carregados em ${cookiesPath}.`);
+}
+
+function getConfiguredCookiesContent(): string | null {
+  const encodedCookies = (process.env.YTDLP_COOKIES_BASE64?.trim() || process.env.YTDLP_COOKIES_B64?.trim() || "").replace(
+    /\s+/g,
+    ""
+  );
+
+  if (encodedCookies) {
+    return normalizeCookieFileContent(Buffer.from(encodedCookies, "base64").toString("utf8"));
+  }
+
+  const rawCookies = process.env.YTDLP_COOKIES_CONTENT ?? process.env.YTDLP_COOKIES;
+
+  if (!rawCookies?.trim()) {
+    return null;
+  }
+
+  return normalizeCookieFileContent(rawCookies);
+}
+
+function normalizeCookieFileContent(value: string): string {
+  const normalizedEscapedNewlines =
+    value.includes("\\n") && !value.includes("\n") ? value.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n") : value;
+  const normalizedNewlines = normalizedEscapedNewlines.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trimEnd();
+  return `${normalizedNewlines}\n`;
+}
+
+async function warnIfCookiesFileIsMissing(cookiesPath: string): Promise<void> {
+  try {
+    await fs.access(cookiesPath);
+  } catch {
+    console.warn(`YTDLP_COOKIES_PATH aponta para "${cookiesPath}", mas o arquivo nao foi encontrado.`);
+  }
 }
 
 function getReferer(value: string): string {
@@ -991,12 +1046,16 @@ function normalizeYtDlpError(message: string): string {
     return "O yt-dlp nao reconheceu esta URL.";
   }
 
+  if (/cookies file|could not open.*cookies|failed to read.*cookies|no such file.*cookies/i.test(compact)) {
+    return "O servidor nao conseguiu ler os cookies do yt-dlp. No Render, configure YTDLP_COOKIES_BASE64 ou ajuste YTDLP_COOKIES_PATH para um arquivo existente.";
+  }
+
   if (/instagram/i.test(compact) && /private|login|sign in|cookies|not available|checkpoint/i.test(compact)) {
     return "O Instagram bloqueou o acesso automatico a este conteudo. Tente uma URL publica; se o conteudo exige login, configure cookies autorizados no servidor.";
   }
 
   if (/youtube|youtu\.be/i.test(compact) && /bot|confirm.*not a bot|sign in|login|cookies/i.test(compact)) {
-    return "O YouTube bloqueou o acesso automatico pelo servidor. Configure cookies autorizados no Render em YTDLP_COOKIES_PATH ou tente novamente em alguns minutos.";
+    return "O YouTube bloqueou o acesso automatico pelo servidor. Configure cookies autorizados no Render em YTDLP_COOKIES_BASE64 ou tente novamente em alguns minutos.";
   }
 
   if (/private|login|sign in|cookies/i.test(compact)) {

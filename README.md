@@ -54,6 +54,8 @@ FFMPEG_BIN=ffmpeg
 STREAM_DOWNLOADS=false
 ALLOWED_ORIGINS=https://videouniversal.vercel.app
 YTDLP_COOKIES_PATH=
+YTDLP_COOKIES_BASE64=
+YTDLP_COOKIES_CONTENT=
 YTDLP_PROXY=
 YTDLP_EXTRACTOR_ARGS=youtube:player_client=android_vr,ios,web
 ADMIN_TOKEN=
@@ -136,6 +138,20 @@ O backend envia `User-Agent`, `Accept-Language`, referer, retries, clientes alte
 ```env
 YTDLP_COOKIES_PATH=/caminho/para/cookies.txt
 ```
+
+No Render, o caminho acima normalmente nao existe dentro do container. Para esse caso, gere um `cookies.txt` em formato Netscape, converta para base64 e salve como Secret Environment Variable:
+
+```powershell
+[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((Get-Content .\cookies.txt -Raw))) | Set-Clipboard
+```
+
+Depois configure no Render:
+
+```env
+YTDLP_COOKIES_BASE64=valor_copiado_do_comando
+```
+
+Ao iniciar, o backend grava esses cookies em `/tmp/yt-dlp-cookies.txt` e passa o arquivo ao `yt-dlp`. Se o YouTube continuar bloqueando IPs de datacenter, configure tambem um proxy autorizado com `YTDLP_PROXY`.
 
 ## Aviso de uso
 
