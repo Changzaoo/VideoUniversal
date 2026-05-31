@@ -47,8 +47,7 @@ const corsOptions: CorsOptions = {
     "Content-Type",
     "Authorization",
     "X-Requested-With",
-    "Ngrok-Skip-Browser-Warning",
-    "X-Video-Universal-Key"
+    "Ngrok-Skip-Browser-Warning"
   ],
   exposedHeaders: ["Content-Disposition"],
   credentials: false,

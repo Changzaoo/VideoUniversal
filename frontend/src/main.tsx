@@ -6,7 +6,6 @@ import {
   Clipboard,
   Download,
   FileVideo2,
-  KeyRound,
   Link2,
   Loader2,
   Music2,
@@ -15,7 +14,6 @@ import {
 
 const REMOTE_API_BASE_URL = "https://videouniversal-backend.onrender.com/api";
 const NGROK_API_BASE_URL = "/pc-api";
-const PC_ACCESS_KEY_STORAGE_KEY = "video-universal-pc-key";
 const DIRECT_DOWNLOAD_MIN_DURATION_SECONDS = 5 * 60;
 const LOCAL_HEALTH_TIMEOUT_MS = 3500;
 const REMOTE_HEALTH_TIMEOUT_MS = 30000;
@@ -39,16 +37,6 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
 };
 
-class ApiRequestError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-    public apiBaseUrl: string
-  ) {
-    super(message);
-  }
-}
-
 const qualityOptions: Array<{ value: VideoQuality; label: string }> = [
   { value: "best", label: "Auto" },
   { value: "2160p", label: "4K" },
@@ -69,13 +57,9 @@ function App() {
   const [apiBaseUrl, setApiBaseUrl] = useState(() => getApiBaseUrlCandidates()[0]);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installed, setInstalled] = useState(() => isStandaloneApp());
-  const [pcAccessKey, setPcAccessKey] = useState(() => getStoredPcAccessKey());
-  const [pcAccessKeyDraft, setPcAccessKeyDraft] = useState(() => getStoredPcAccessKey());
-  const [needsPcAccessKey, setNeedsPcAccessKey] = useState(false);
 
   const canDownload = useMemo(() => url.trim().length > 0 && !downloading, [url, downloading]);
   const canInstall = Boolean(installPrompt && !installed);
-  const showPcAccessKey = needsPcAccessKey || pcAccessKeyDraft.trim().length > 0;
 
   useEffect(() => {
     if (!success) {
@@ -147,7 +131,6 @@ function App() {
     event?.preventDefault();
     setError("");
     setSuccess("");
-    setNeedsPcAccessKey(false);
 
     if (!isHttpUrl(url)) {
       setError("Cole uma URL valida comecando com http:// ou https://.");
@@ -157,37 +140,15 @@ function App() {
     setDownloading(true);
 
     try {
-      const resolvedApiBaseUrl = await resolveApiBaseUrl(apiBaseUrl, pcAccessKey);
+      const resolvedApiBaseUrl = await resolveApiBaseUrl(apiBaseUrl);
       setApiBaseUrl(resolvedApiBaseUrl);
-      const result = await downloadFile(resolvedApiBaseUrl, url.trim(), type, quality, pcAccessKey);
+      const result = await downloadFile(resolvedApiBaseUrl, url.trim(), type, quality);
       setSuccess(result === "direct" ? "Download iniciado no navegador." : "Arquivo pronto. O download foi iniciado.");
     } catch (requestError) {
-      if (isPcAccessKeyError(requestError)) {
-        setNeedsPcAccessKey(true);
-      }
-
       setError(getErrorMessage(requestError));
     } finally {
       setDownloading(false);
     }
-  }
-
-  function handleSavePcAccessKey() {
-    const key = pcAccessKeyDraft.trim();
-
-    if (!key) {
-      window.localStorage.removeItem(PC_ACCESS_KEY_STORAGE_KEY);
-      setPcAccessKey("");
-      setNeedsPcAccessKey(true);
-      setError("Informe a chave de acesso do PC.");
-      return;
-    }
-
-    window.localStorage.setItem(PC_ACCESS_KEY_STORAGE_KEY, key);
-    setPcAccessKey(key);
-    setNeedsPcAccessKey(false);
-    setError("");
-    setSuccess("Chave salva.");
   }
 
   return (
@@ -271,25 +232,6 @@ function App() {
                 {downloading ? "Baixando" : "Baixar"}
               </button>
             </div>
-            {showPcAccessKey ? (
-              <div className="access-key-row">
-                <label className="access-key-wrap">
-                  <KeyRound size={18} aria-hidden="true" />
-                  <input
-                    type="password"
-                    autoComplete="off"
-                    placeholder="Chave do PC"
-                    value={pcAccessKeyDraft}
-                    onChange={(event) => setPcAccessKeyDraft(event.target.value)}
-                    aria-label="Chave de acesso do PC"
-                  />
-                </label>
-                <button className="paste-button access-key-save" type="button" onClick={handleSavePcAccessKey}>
-                  <CheckCircle2 size={16} />
-                  Salvar
-                </button>
-              </div>
-            ) : null}
           </form>
 
           <StatusMessages error={error} success={success} />
@@ -332,13 +274,13 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
-async function resolveApiBaseUrl(preferredApiBaseUrl: string, pcAccessKey: string): Promise<string> {
+async function resolveApiBaseUrl(preferredApiBaseUrl: string): Promise<string> {
   let lastError: unknown = null;
 
   for (const apiBaseUrl of getApiBaseUrlCandidates(preferredApiBaseUrl)) {
     try {
       const response = await fetchWithTimeout(`${apiBaseUrl}/health`, getHealthTimeoutMs(apiBaseUrl), {
-        headers: getApiRequestHeaders(apiBaseUrl, {}, pcAccessKey)
+        headers: getApiRequestHeaders(apiBaseUrl)
       });
 
       if (response.ok) {
@@ -372,8 +314,7 @@ async function downloadFile(
   apiBaseUrl: string,
   url: string,
   type: DownloadType,
-  quality: VideoQuality,
-  pcAccessKey: string
+  quality: VideoQuality
 ): Promise<DownloadResult> {
   const canUseDirectDownload = !isNgrokApiBaseUrl(apiBaseUrl);
 
@@ -382,7 +323,7 @@ async function downloadFile(
     return "direct";
   }
 
-  const info = canUseDirectDownload ? await getVideoInfo(apiBaseUrl, url, pcAccessKey).catch(() => null) : null;
+  const info = canUseDirectDownload ? await getVideoInfo(apiBaseUrl, url).catch(() => null) : null;
 
   if (canUseDirectDownload && shouldUseDirectDownload(info, type)) {
     startDirectDownload(buildDownloadUrl(apiBaseUrl, url, type, quality));
@@ -393,12 +334,12 @@ async function downloadFile(
     method: "POST",
     headers: getApiRequestHeaders(apiBaseUrl, {
       "Content-Type": "application/json"
-    }, pcAccessKey),
+    }),
     body: JSON.stringify({ url, type, quality })
   });
 
   if (!response.ok) {
-    throw new ApiRequestError(response.status, await readApiError(response), apiBaseUrl);
+    throw new Error(await readApiError(response));
   }
 
   const blob = await response.blob();
@@ -414,17 +355,17 @@ async function downloadFile(
   return "blob";
 }
 
-async function getVideoInfo(apiBaseUrl: string, url: string, pcAccessKey: string): Promise<VideoInfo> {
+async function getVideoInfo(apiBaseUrl: string, url: string): Promise<VideoInfo> {
   const response = await fetchWithTimeout(`${apiBaseUrl}/info`, VIDEO_INFO_TIMEOUT_MS, {
     method: "POST",
     headers: getApiRequestHeaders(apiBaseUrl, {
       "Content-Type": "application/json"
-    }, pcAccessKey),
+    }),
     body: JSON.stringify({ url })
   });
 
   if (!response.ok) {
-    throw new ApiRequestError(response.status, await readApiError(response), apiBaseUrl);
+    throw new Error(await readApiError(response));
   }
 
   return (await response.json()) as VideoInfo;
@@ -557,38 +498,15 @@ function isNgrokApiBaseUrl(apiBaseUrl: string): boolean {
   }
 }
 
-function getApiRequestHeaders(apiBaseUrl: string, headers: HeadersInit = {}, pcAccessKey = ""): HeadersInit {
+function getApiRequestHeaders(apiBaseUrl: string, headers: HeadersInit = {}): HeadersInit {
   if (!isNgrokApiBaseUrl(apiBaseUrl)) {
     return headers;
   }
 
-  const normalizedHeaders = normalizeHeaders(headers);
-  const accessKey = pcAccessKey.trim();
-
-  if (accessKey) {
-    normalizedHeaders["x-video-universal-key"] = accessKey;
-  }
-
   return {
-    ...normalizedHeaders,
+    ...headers,
     "ngrok-skip-browser-warning": "true"
   };
-}
-
-function normalizeHeaders(headers: HeadersInit): Record<string, string> {
-  if (headers instanceof Headers) {
-    return Object.fromEntries(headers.entries());
-  }
-
-  if (Array.isArray(headers)) {
-    return Object.fromEntries(headers);
-  }
-
-  return { ...headers };
-}
-
-function getStoredPcAccessKey(): string {
-  return window.localStorage.getItem(PC_ACCESS_KEY_STORAGE_KEY)?.trim() ?? "";
 }
 
 function isStandaloneApp(): boolean {
@@ -608,15 +526,7 @@ function startDirectDownload(downloadUrl: string): void {
 }
 
 function getErrorMessage(error: unknown): string {
-  if (isPcAccessKeyError(error)) {
-    return "Informe a chave de acesso do PC.";
-  }
-
   return normalizeRequestError(error, "Algo deu errado. Tente novamente.").message;
-}
-
-function isPcAccessKeyError(error: unknown): boolean {
-  return error instanceof ApiRequestError && error.status === 401 && isNgrokApiBaseUrl(error.apiBaseUrl);
 }
 
 function normalizeRequestError(error: unknown, fallbackMessage: string): Error {
