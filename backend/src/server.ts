@@ -488,13 +488,6 @@ function sendErrorResponse(
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Video Universal</title>
-    <style>
-      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #11151c; color: #f8fafc; font-family: Arial, sans-serif; }
-      main { width: min(560px, calc(100vw - 32px)); padding: 28px; border: 1px solid rgba(248, 113, 113, 0.55); border-radius: 10px; background: rgba(127, 29, 29, 0.28); }
-      h1 { margin: 0 0 12px; font-size: 24px; }
-      p { margin: 0 0 20px; line-height: 1.55; color: #fecaca; }
-      a { display: inline-block; color: white; background: #2563eb; padding: 11px 16px; border-radius: 8px; text-decoration: none; font-weight: 700; }
-    </style>
   </head>
   <body>
     <main>
