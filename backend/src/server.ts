@@ -81,6 +81,12 @@ type YtDlpOutput = {
   extractor?: unknown;
 };
 
+type OEmbedOutput = {
+  title?: unknown;
+  author_name?: unknown;
+  thumbnail_url?: unknown;
+};
+
 class HttpError extends Error {
   constructor(
     public status: number,
@@ -278,6 +284,20 @@ app.listen(port, host, () => {
 });
 
 async function getVideoInfo(url: string): Promise<VideoInfo> {
+  try {
+    return await getVideoInfoWithYtDlp(url);
+  } catch (error) {
+    const fallback = await getYoutubeOEmbedInfo(url);
+
+    if (fallback) {
+      return fallback;
+    }
+
+    throw error;
+  }
+}
+
+async function getVideoInfoWithYtDlp(url: string): Promise<VideoInfo> {
   const { stdout } = await runYtDlp(
     ["--dump-single-json", "--skip-download", "--no-warnings", "--no-playlist", url],
     90 * 1000
@@ -299,6 +319,45 @@ async function getVideoInfo(url: string): Promise<VideoInfo> {
     webpage_url: asString(rawInfo.webpage_url) ?? url,
     extractor: asString(rawInfo.extractor)
   };
+}
+
+async function getYoutubeOEmbedInfo(url: string): Promise<VideoInfo | null> {
+  const videoId = getYoutubeVideoId(url);
+
+  if (!videoId) {
+    return null;
+  }
+
+  const webpageUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const oembedUrl = new URL("https://www.youtube.com/oembed");
+  oembedUrl.searchParams.set("format", "json");
+  oembedUrl.searchParams.set("url", webpageUrl);
+
+  try {
+    const response = await fetch(oembedUrl);
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = (await response.json().catch(() => null)) as OEmbedOutput | null;
+    const title = asString(payload?.title);
+
+    if (!title) {
+      return null;
+    }
+
+    return {
+      title,
+      duration: null,
+      thumbnail: asString(payload?.thumbnail_url) ?? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+      uploader: asString(payload?.author_name),
+      webpage_url: webpageUrl,
+      extractor: "youtube"
+    };
+  } catch {
+    return null;
+  }
 }
 
 function runYtDlp(args: string[], timeoutMs: number): Promise<{ stdout: string; stderr: string }> {
@@ -614,6 +673,38 @@ function getStreamingVideoFormat(quality: string): string {
   }
 
   return `b[height<=${maxHeight}][ext=mp4]/best[height<=${maxHeight}][ext=mp4]/b[ext=mp4]/best[ext=mp4]`;
+}
+
+function getYoutubeVideoId(value: string): string | null {
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.replace(/^www\./i, "").toLowerCase();
+
+    if (hostname === "youtu.be") {
+      return normalizeYoutubeVideoId(url.pathname.split("/").filter(Boolean)[0]);
+    }
+
+    const isYoutubeHost = hostname === "youtube.com" || hostname.endsWith(".youtube.com");
+    const isYoutubeNoCookieHost = hostname === "youtube-nocookie.com" || hostname.endsWith(".youtube-nocookie.com");
+
+    if (!isYoutubeHost && !isYoutubeNoCookieHost) {
+      return null;
+    }
+
+    if (url.pathname === "/watch") {
+      return normalizeYoutubeVideoId(url.searchParams.get("v") ?? "");
+    }
+
+    const pathMatch = url.pathname.match(/^\/(?:embed|shorts|live)\/([^/?#]+)/i);
+    return normalizeYoutubeVideoId(pathMatch?.[1] ?? "");
+  } catch {
+    return null;
+  }
+}
+
+function normalizeYoutubeVideoId(value: string | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  return /^[A-Za-z0-9_-]{11}$/.test(trimmed) ? trimmed : null;
 }
 
 function parseRequestBody(body: unknown): unknown {

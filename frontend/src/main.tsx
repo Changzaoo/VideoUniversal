@@ -1,4 +1,4 @@
-import React, { FormEvent, useMemo, useState } from "react";
+import React, { FormEvent, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   AlertTriangle,
@@ -8,7 +8,6 @@ import {
   Download,
   ExternalLink,
   FileVideo2,
-  History,
   Link2,
   Loader2,
   Music2,
@@ -17,7 +16,14 @@ import {
   User2
 } from "lucide-react";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "https://videouniversal-backend.onrender.com/api";
+const REMOTE_API_BASE_URL = "https://videouniversal-backend.onrender.com/api";
+const LOCAL_API_BASE_URLS = [
+  "http://localhost:3333/api",
+  "http://localhost:3334/api",
+  "http://127.0.0.1:3333/api",
+  "http://127.0.0.1:3334/api"
+];
+const CONFIGURED_API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 
 type DownloadType = "video" | "audio";
 type VideoQuality = "best" | "2160p" | "1440p" | "1080p" | "720p" | "480p" | "360p";
@@ -29,13 +35,6 @@ type VideoInfo = {
   uploader: string | null;
   webpage_url: string | null;
   extractor: string | null;
-};
-
-type HistoryItem = {
-  id: string;
-  title: string;
-  type: DownloadType;
-  createdAt: string;
 };
 
 const qualityOptions: Array<{ value: VideoQuality; label: string }> = [
@@ -57,10 +56,20 @@ function App() {
   const [success, setSuccess] = useState("");
   const [loadingInfo, setLoadingInfo] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [apiBaseUrl, setApiBaseUrl] = useState(() => getApiBaseUrlCandidates()[0]);
 
   const canAnalyze = useMemo(() => url.trim().length > 0 && !loadingInfo && !downloading, [url, loadingInfo, downloading]);
   const canDownload = useMemo(() => url.trim().length > 0 && !loadingInfo && !downloading, [url, loadingInfo, downloading]);
+  const apiStatus = useMemo(() => getApiStatusLabel(apiBaseUrl), [apiBaseUrl]);
+
+  useEffect(() => {
+    if (!success) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => setSuccess(""), 1800);
+    return () => window.clearTimeout(timer);
+  }, [success]);
 
   async function handleInfo(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
@@ -76,12 +85,9 @@ function App() {
     setLoadingInfo(true);
 
     try {
-      const response = await fetch(buildInfoUrl(url.trim()), {
-        method: "GET"
-      });
-
-      const payload = await readJsonResponse<VideoInfo>(response);
-      setInfo(payload);
+      const result = await fetchVideoInfo(url.trim(), apiBaseUrl);
+      setApiBaseUrl(result.apiBaseUrl);
+      setInfo(result.info);
       setSuccess("Informacoes carregadas. Escolha o formato e baixe quando quiser.");
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -107,7 +113,7 @@ function App() {
     }
   }
 
-  function handleDownload() {
+  async function handleDownload() {
     setError("");
     setSuccess("");
 
@@ -117,18 +123,19 @@ function App() {
     }
 
     setDownloading(true);
-    startBrowserDownload(buildDownloadUrl(url.trim(), type, quality));
 
-    const title = info?.title ?? getHostLabel(url) ?? "Download";
-    setHistory((current) => [
-      {
-        id: crypto.randomUUID(),
-        title,
-        type,
-        createdAt: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
-      },
-      ...current.slice(0, 4)
-    ]);
+    let resolvedApiBaseUrl: string;
+
+    try {
+      resolvedApiBaseUrl = await resolveApiBaseUrl(apiBaseUrl);
+      setApiBaseUrl(resolvedApiBaseUrl);
+    } catch (requestError) {
+      setDownloading(false);
+      setError(getErrorMessage(requestError));
+      return;
+    }
+
+    startBrowserDownload(buildDownloadUrl(resolvedApiBaseUrl, url.trim(), type, quality));
     setSuccess("Download enviado diretamente para o navegador.");
     window.setTimeout(() => setDownloading(false), 1200);
   }
@@ -143,13 +150,8 @@ function App() {
         <div className="topbar-actions" aria-label="Acoes do aplicativo">
           <span className="status-pill">
             <span className="status-dot" />
-            Local
+            {apiStatus}
           </span>
-          <button className="history-button" type="button">
-            <History size={16} />
-            Historico
-            {history.length > 0 ? <span>{history.length}</span> : null}
-          </button>
         </div>
       </header>
 
@@ -233,8 +235,6 @@ function App() {
           <StatusMessages error={error} success={success} />
 
           <PreviewPanel info={info} loading={loadingInfo} />
-
-          {history.length > 0 ? <HistoryList items={history} /> : null}
         </section>
       </main>
     </React.StrictMode>
@@ -331,32 +331,6 @@ function PreviewPanel({ info, loading }: { info: VideoInfo | null; loading: bool
   );
 }
 
-function HistoryList({ items }: { items: HistoryItem[] }) {
-  return (
-    <section className="history-list" aria-label="Downloads recentes">
-      <div className="section-head compact">
-        <div>
-          <p>Historico</p>
-          <h2>Downloads recentes</h2>
-        </div>
-      </div>
-
-      <div className="history-items">
-        {items.map((item) => (
-          <div className="history-item" key={item.id}>
-            <span className={item.type === "video" ? "history-icon" : "history-icon audio"}>
-              {item.type === "video" ? <FileVideo2 size={18} /> : <Music2 size={18} />}
-            </span>
-            <strong>{item.title}</strong>
-            <em>{item.type === "video" ? "MP4" : "MP3"}</em>
-            <time>{item.createdAt}</time>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function isHttpUrl(value: string): boolean {
   try {
     const parsed = new URL(value.trim());
@@ -402,12 +376,61 @@ function getDownloadFileName(response: Response, type: DownloadType, title?: str
   return `${baseName || "download"}.${type === "video" ? "mp4" : "mp3"}`;
 }
 
-function buildInfoUrl(url: string): string {
-  const params = new URLSearchParams({ url });
-  return `${API_BASE_URL}/info?${params.toString()}`;
+async function fetchVideoInfo(url: string, preferredApiBaseUrl: string): Promise<{ info: VideoInfo; apiBaseUrl: string }> {
+  let lastError: unknown = null;
+
+  for (const apiBaseUrl of getApiBaseUrlCandidates(preferredApiBaseUrl)) {
+    try {
+      const response = await fetch(buildInfoUrl(apiBaseUrl, url), {
+        method: "GET"
+      });
+      const info = await readJsonResponse<VideoInfo>(response);
+      return { info, apiBaseUrl };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError ?? new Error("Nao foi possivel concluir a requisicao.");
 }
 
-function buildDownloadUrl(url: string, type: DownloadType, quality: VideoQuality): string {
+async function resolveApiBaseUrl(preferredApiBaseUrl: string): Promise<string> {
+  let lastError: unknown = null;
+
+  for (const apiBaseUrl of getApiBaseUrlCandidates(preferredApiBaseUrl)) {
+    try {
+      const response = await fetchWithTimeout(`${apiBaseUrl}/health`, 2500);
+
+      if (response.ok) {
+        return apiBaseUrl;
+      }
+
+      lastError = new Error("API indisponivel.");
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError ?? new Error("Nao encontrei a API online.");
+}
+
+async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+function buildInfoUrl(apiBaseUrl: string, url: string): string {
+  const params = new URLSearchParams({ url });
+  return `${apiBaseUrl}/info?${params.toString()}`;
+}
+
+function buildDownloadUrl(apiBaseUrl: string, url: string, type: DownloadType, quality: VideoQuality): string {
   const params = new URLSearchParams({
     url,
     type
@@ -417,7 +440,50 @@ function buildDownloadUrl(url: string, type: DownloadType, quality: VideoQuality
     params.set("quality", quality);
   }
 
-  return `${API_BASE_URL}/download?${params.toString()}`;
+  return `${apiBaseUrl}/download?${params.toString()}`;
+}
+
+function getApiBaseUrlCandidates(preferredApiBaseUrl?: string): string[] {
+  const candidates: string[] = [];
+
+  if (preferredApiBaseUrl) {
+    candidates.push(preferredApiBaseUrl);
+  }
+
+  if (import.meta.env.DEV) {
+    if (CONFIGURED_API_BASE_URL && isLocalApiBaseUrl(CONFIGURED_API_BASE_URL)) {
+      candidates.push(CONFIGURED_API_BASE_URL);
+    }
+
+    candidates.push(...LOCAL_API_BASE_URLS);
+
+    if (CONFIGURED_API_BASE_URL && !isLocalApiBaseUrl(CONFIGURED_API_BASE_URL)) {
+      candidates.push(CONFIGURED_API_BASE_URL);
+    }
+  } else if (CONFIGURED_API_BASE_URL) {
+    candidates.push(CONFIGURED_API_BASE_URL);
+  }
+
+  candidates.push(REMOTE_API_BASE_URL);
+
+  return Array.from(new Set(candidates.map((candidate) => normalizeApiBaseUrl(candidate)).filter(Boolean)));
+}
+
+function normalizeApiBaseUrl(value: string | undefined): string {
+  return value?.trim().replace(/\/+$/g, "") ?? "";
+}
+
+function getApiStatusLabel(apiBaseUrl: string): string {
+  return isLocalApiBaseUrl(apiBaseUrl) ? "Local" : "Nuvem";
+}
+
+function isLocalApiBaseUrl(apiBaseUrl: string): boolean {
+  try {
+    const hostname = new URL(apiBaseUrl).hostname;
+    return hostname === "localhost" || hostname === "127.0.0.1";
+  } catch {
+    return false;
+  }
 }
 
 function startBrowserDownload(downloadUrl: string): void {

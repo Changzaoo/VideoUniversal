@@ -82,11 +82,13 @@ $env:PORT="3334"; npm run dev
 $env:VITE_API_BASE_URL="http://localhost:3334/api"; npm run dev
 ```
 
+Sem `VITE_API_BASE_URL`, o frontend em modo dev tenta automaticamente as APIs locais `3333` e `3334` antes do backend publicado.
+
 ## Endpoints
 
 - `GET /api/health`: verifica se a API esta online.
-- `POST /api/info`: recebe `{ "url": "https://..." }` e retorna metadados do video.
-- `POST /api/download`: recebe `{ "url": "https://...", "type": "video", "quality": "1080p" }` ou `{ "url": "https://...", "type": "audio" }` e inicia o download.
+- `GET /api/info?url=https://...` ou `POST /api/info`: retorna metadados do video.
+- `GET /api/download?url=https://...&type=video&quality=1080p` ou `POST /api/download`: inicia o download.
 
 Para video, `quality` e opcional. Valores aceitos: `best`, `2160p`, `1440p`, `1080p`, `720p`, `480p` e `360p`.
 
