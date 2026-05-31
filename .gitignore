@@ -11,6 +11,8 @@ dist/
 *.key
 secrets.json
 config.json
+cookies.txt
+*.cookies.txt
 
 backend/downloads/
 backend/*.log
