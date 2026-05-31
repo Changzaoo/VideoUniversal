@@ -4,16 +4,11 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clipboard,
-  Clock3,
   Download,
-  ExternalLink,
   FileVideo2,
   Link2,
   Loader2,
   Music2,
-  Play,
-  Sparkles,
-  User2
 } from "lucide-react";
 
 const REMOTE_API_BASE_URL = "https://videouniversal-backend.onrender.com/api";
@@ -27,15 +22,6 @@ const CONFIGURED_API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_BAS
 
 type DownloadType = "video" | "audio";
 type VideoQuality = "best" | "2160p" | "1440p" | "1080p" | "720p" | "480p" | "360p";
-
-type VideoInfo = {
-  title: string | null;
-  duration: number | null;
-  thumbnail: string | null;
-  uploader: string | null;
-  webpage_url: string | null;
-  extractor: string | null;
-};
 
 const qualityOptions: Array<{ value: VideoQuality; label: string }> = [
   { value: "best", label: "Auto" },
@@ -51,16 +37,12 @@ function App() {
   const [url, setUrl] = useState("");
   const [type, setType] = useState<DownloadType>("video");
   const [quality, setQuality] = useState<VideoQuality>("720p");
-  const [info, setInfo] = useState<VideoInfo | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [loadingInfo, setLoadingInfo] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [apiBaseUrl, setApiBaseUrl] = useState(() => getApiBaseUrlCandidates()[0]);
 
-  const canAnalyze = useMemo(() => url.trim().length > 0 && !loadingInfo && !downloading, [url, loadingInfo, downloading]);
-  const canDownload = useMemo(() => url.trim().length > 0 && !loadingInfo && !downloading, [url, loadingInfo, downloading]);
-  const apiStatus = useMemo(() => getApiStatusLabel(apiBaseUrl), [apiBaseUrl]);
+  const canDownload = useMemo(() => url.trim().length > 0 && !downloading, [url, downloading]);
 
   useEffect(() => {
     if (!success) {
@@ -70,31 +52,6 @@ function App() {
     const timer = window.setTimeout(() => setSuccess(""), 1800);
     return () => window.clearTimeout(timer);
   }, [success]);
-
-  async function handleInfo(event?: FormEvent<HTMLFormElement>) {
-    event?.preventDefault();
-    setError("");
-    setSuccess("");
-    setInfo(null);
-
-    if (!isHttpUrl(url)) {
-      setError("Cole uma URL valida começando com http:// ou https://.");
-      return;
-    }
-
-    setLoadingInfo(true);
-
-    try {
-      const result = await fetchVideoInfo(url.trim(), apiBaseUrl);
-      setApiBaseUrl(result.apiBaseUrl);
-      setInfo(result.info);
-      setSuccess("Informacoes carregadas. Escolha o formato e baixe quando quiser.");
-    } catch (requestError) {
-      setError(getErrorMessage(requestError));
-    } finally {
-      setLoadingInfo(false);
-    }
-  }
 
   async function handlePaste() {
     setError("");
@@ -113,7 +70,8 @@ function App() {
     }
   }
 
-  async function handleDownload() {
+  async function handleDownload(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
     setError("");
     setSuccess("");
 
@@ -146,13 +104,6 @@ function App() {
         <a className="brand" href="/" aria-label="Video Universal">
           <img src="/assets/logo-full.png" alt="Video Universal" />
         </a>
-
-        <div className="topbar-actions" aria-label="Acoes do aplicativo">
-          <span className="status-pill">
-            <span className="status-dot" />
-            {apiStatus}
-          </span>
-        </div>
       </header>
 
       <main className="main-shell">
@@ -161,7 +112,7 @@ function App() {
             <h1 id="page-title">Baixe qualquer video da web</h1>
           </div>
 
-          <form className={`input-card ${error ? "has-error" : ""}`} onSubmit={handleInfo}>
+          <form className={`input-card ${error ? "has-error" : ""}`} onSubmit={handleDownload}>
             <div className="input-row">
               <div className="inline-tools" aria-label="Formato e qualidade">
                 <div className="mini-toggle" aria-label="Tipo de download">
@@ -220,12 +171,7 @@ function App() {
                 Colar
               </button>
 
-              <button className="primary-button" type="submit" disabled={!canAnalyze}>
-                {loadingInfo ? <Loader2 className="spin" size={18} /> : <Sparkles size={18} />}
-                {loadingInfo ? "Analisando..." : "Analisar"}
-              </button>
-
-              <button className="primary-button download-inline" type="button" disabled={!canDownload} onClick={handleDownload}>
+              <button className="primary-button download-inline" type="submit" disabled={!canDownload}>
                 {downloading ? <Loader2 className="spin" size={18} /> : <Download size={18} />}
                 {downloading ? "..." : "Baixar"}
               </button>
@@ -233,8 +179,6 @@ function App() {
           </form>
 
           <StatusMessages error={error} success={success} />
-
-          <PreviewPanel info={info} loading={loadingInfo} />
         </section>
       </main>
     </React.StrictMode>
@@ -265,72 +209,6 @@ function StatusMessages({ error, success }: { error: string; success: string }) 
   );
 }
 
-function PreviewPanel({ info, loading }: { info: VideoInfo | null; loading: boolean }) {
-  if (loading) {
-    return (
-      <section className="preview-card loading-card" aria-label="Carregando preview">
-        <div className="preview-thumb skeleton" />
-        <div className="preview-meta">
-          <div className="skeleton skeleton-title" />
-          <div className="skeleton skeleton-line" />
-          <div className="skeleton skeleton-line short" />
-        </div>
-      </section>
-    );
-  }
-
-  if (!info) {
-    return (
-      <section className="preview-card empty-card" aria-label="Preview do video">
-        <div className="preview-thumb placeholder-thumb">
-          <Play size={30} fill="currentColor" />
-        </div>
-        <div className="preview-meta">
-          <span className="source-badge">Preview</span>
-          <h2>As informacoes do video aparecem aqui</h2>
-          <p>Cole uma URL publica e clique em analisar para ver titulo, fonte, autor e duracao.</p>
-        </div>
-      </section>
-    );
-  }
-
-  return (
-    <section className="preview-card" aria-label="Preview do video">
-      <div className="preview-thumb">
-        {info.thumbnail ? <img src={info.thumbnail} alt="" /> : <Play size={30} fill="currentColor" />}
-        <span className="duration-pill">{formatDuration(info.duration)}</span>
-      </div>
-
-      <div className="preview-meta">
-        <span className="source-badge">
-          <span className="source-dot" />
-          {info.extractor ?? getHostLabel(info.webpage_url ?? "") ?? "Fonte"}
-        </span>
-
-        <h2>{info.title ?? "Titulo nao informado"}</h2>
-
-        <div className="meta-row">
-          <span>
-            <User2 size={16} />
-            {info.uploader ?? "Autor nao informado"}
-          </span>
-          <span>
-            <Clock3 size={16} />
-            {formatDuration(info.duration)}
-          </span>
-        </div>
-
-        {info.webpage_url ? (
-          <a className="source-link" href={info.webpage_url} target="_blank" rel="noreferrer">
-            Abrir fonte
-            <ExternalLink size={16} />
-          </a>
-        ) : null}
-      </div>
-    </section>
-  );
-}
-
 function isHttpUrl(value: string): boolean {
   try {
     const parsed = new URL(value.trim());
@@ -338,60 +216,6 @@ function isHttpUrl(value: string): boolean {
   } catch {
     return false;
   }
-}
-
-async function readJsonResponse<T = unknown>(response: Response): Promise<T> {
-  const payload = (await response.json().catch(() => null)) as { error?: string } | T | null;
-
-  if (!response.ok) {
-    const message =
-      payload && typeof payload === "object" && "error" in payload && typeof payload.error === "string"
-        ? payload.error
-        : "Nao foi possivel concluir a requisicao.";
-    throw new Error(message);
-  }
-
-  return payload as T;
-}
-
-function getDownloadFileName(response: Response, type: DownloadType, title?: string | null): string {
-  const header = response.headers.get("Content-Disposition") ?? "";
-  const encodedMatch = header.match(/filename\*=UTF-8''([^;]+)/i);
-  const plainMatch = header.match(/filename="?([^"]+)"?/i);
-
-  if (encodedMatch?.[1]) {
-    return decodeURIComponent(encodedMatch[1]);
-  }
-
-  if (plainMatch?.[1]) {
-    return plainMatch[1];
-  }
-
-  const baseName = (title ?? "download")
-    .replace(/[<>:"/\\|?*\x00-\x1f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 80);
-
-  return `${baseName || "download"}.${type === "video" ? "mp4" : "mp3"}`;
-}
-
-async function fetchVideoInfo(url: string, preferredApiBaseUrl: string): Promise<{ info: VideoInfo; apiBaseUrl: string }> {
-  let lastError: unknown = null;
-
-  for (const apiBaseUrl of getApiBaseUrlCandidates(preferredApiBaseUrl)) {
-    try {
-      const response = await fetch(buildInfoUrl(apiBaseUrl, url), {
-        method: "GET"
-      });
-      const info = await readJsonResponse<VideoInfo>(response);
-      return { info, apiBaseUrl };
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  throw lastError ?? new Error("Nao foi possivel concluir a requisicao.");
 }
 
 async function resolveApiBaseUrl(preferredApiBaseUrl: string): Promise<string> {
@@ -423,11 +247,6 @@ async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Respons
   } finally {
     window.clearTimeout(timer);
   }
-}
-
-function buildInfoUrl(apiBaseUrl: string, url: string): string {
-  const params = new URLSearchParams({ url });
-  return `${apiBaseUrl}/info?${params.toString()}`;
 }
 
 function buildDownloadUrl(apiBaseUrl: string, url: string, type: DownloadType, quality: VideoQuality): string {
@@ -473,10 +292,6 @@ function normalizeApiBaseUrl(value: string | undefined): string {
   return value?.trim().replace(/\/+$/g, "") ?? "";
 }
 
-function getApiStatusLabel(apiBaseUrl: string): string {
-  return isLocalApiBaseUrl(apiBaseUrl) ? "Local" : "Nuvem";
-}
-
 function isLocalApiBaseUrl(apiBaseUrl: string): boolean {
   try {
     const hostname = new URL(apiBaseUrl).hostname;
@@ -509,27 +324,6 @@ function startBrowserDownload(downloadUrl: string): void {
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Algo deu errado. Tente novamente.";
-}
-
-function formatDuration(seconds: number | null): string {
-  if (!seconds || seconds <= 0) {
-    return "Duracao nao informada";
-  }
-
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const remainingSeconds = Math.floor(seconds % 60);
-  const parts = hours > 0 ? [hours, minutes, remainingSeconds] : [minutes, remainingSeconds];
-
-  return parts.map((part) => String(part).padStart(2, "0")).join(":");
-}
-
-function getHostLabel(value: string): string | null {
-  try {
-    return new URL(value.trim()).hostname.replace(/^www\./, "");
-  } catch {
-    return null;
-  }
 }
 
 createRoot(document.getElementById("root")!).render(<App />);
