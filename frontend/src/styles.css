@@ -308,6 +308,50 @@ a {
   opacity: 0.48;
 }
 
+.access-key-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+  padding: 0 7px 7px;
+}
+
+.access-key-wrap {
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.access-key-wrap svg {
+  flex: 0 0 auto;
+  color: #8aa2bd;
+}
+
+.access-key-wrap input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: #f8f8f3;
+  background: transparent;
+  font-family: var(--mono);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.access-key-wrap input::placeholder {
+  color: #898d8c;
+}
+
+.access-key-save {
+  min-width: 108px;
+}
+
 .messages {
   width: min(620px, 100%);
   display: grid;
@@ -403,6 +447,14 @@ a {
 
   .paste-button,
   .primary-button {
+    width: 100%;
+  }
+
+  .access-key-row {
+    grid-template-columns: 1fr;
+  }
+
+  .access-key-save {
     width: 100%;
   }
 

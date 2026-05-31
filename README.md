@@ -113,6 +113,9 @@ um tunel ngrok para o roteador local:
 
 ```powershell
 ngrok config add-authtoken SEU_TOKEN
+$bytes = New-Object byte[] 32
+[System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+$env:VIDEO_UNIVERSAL_PC_TOKEN = -join ($bytes | ForEach-Object { $_.ToString("x2") })
 node .\scripts\ngrok-router.mjs
 ngrok http http://127.0.0.1:3099
 ```
@@ -122,6 +125,9 @@ em `3333`, e todo o restante continua indo para a outra aplicacao em `3005`. O f
 `/pc-api`, uma rota da Vercel que repassa para `/vu/api/*` no tunel configurado no `vercel.json`. Se o tunel estiver
 offline, o app tenta as APIs locais e depois o backend do Render.
 
+Com `VIDEO_UNIVERSAL_PC_TOKEN` configurado, `/vu/api/info` e `/vu/api/download` exigem a chave no header
+`X-Video-Universal-Key`. A rota `/vu/api/health` fica publica apenas para checagem de disponibilidade.
+
 ## Endpoints
 
 - `GET /api/health`: verifica se a API esta online.
@@ -130,7 +136,8 @@ offline, o app tenta as APIs locais e depois o backend do Render.
 
 Para video, `quality` e opcional. Valores aceitos: `best`, `2160p`, `1440p`, `1080p`, `720p`, `480p` e `360p`.
 
-O backend aceita apenas URLs `http` e `https`, usa `--no-playlist` por padrao e chama `yt-dlp` com `spawn`, sem `exec` com strings.
+O backend aceita apenas URLs `http` e `https`, bloqueia hosts locais/privados/internos, usa `--no-playlist` por padrao
+e chama `yt-dlp` com `spawn`, sem `exec` com strings.
 
 ## Deploy do backend no Render
 

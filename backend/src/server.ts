@@ -3,7 +3,9 @@ import type { CorsOptions } from "cors";
 import dotenv from "dotenv";
 import express, { type NextFunction, type Request, type Response } from "express";
 import rateLimit from "express-rate-limit";
+import dns from "node:dns/promises";
 import fs from "node:fs/promises";
+import { isIP } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,7 +43,13 @@ const corsOptions: CorsOptions = {
     callback(new HttpError(403, "Origem nao permitida pelo CORS."));
   },
   methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Ngrok-Skip-Browser-Warning"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Requested-With",
+    "Ngrok-Skip-Browser-Warning",
+    "X-Video-Universal-Key"
+  ],
   exposedHeaders: ["Content-Disposition"],
   credentials: false,
   optionsSuccessStatus: 204
@@ -57,12 +65,20 @@ const allowedUrl = z
   .url("Informe uma URL valida.")
   .refine((value) => {
     try {
-      const protocol = new URL(value).protocol;
+      const parsed = new URL(value);
+      const protocol = parsed.protocol;
       return protocol === "http:" || protocol === "https:";
     } catch {
       return false;
     }
-  }, "A URL precisa usar http ou https.");
+  }, "A URL precisa usar http ou https.")
+  .refine((value) => {
+    try {
+      return !isBlockedUrlHost(new URL(value).hostname);
+    } catch {
+      return false;
+    }
+  }, "Nao use URLs locais, privadas ou internas.");
 
 const infoSchema = z.object({
   url: allowedUrl
@@ -123,18 +139,123 @@ class HttpError extends Error {
   }
 }
 
+async function assertPublicDownloadUrl(value: string): Promise<void> {
+  const parsed = new URL(value);
+  const hostname = normalizeUrlHostname(parsed.hostname);
+
+  if (isBlockedUrlHost(hostname)) {
+    throw new HttpError(400, "Nao use URLs locais, privadas ou internas.");
+  }
+
+  if (isIP(hostname)) {
+    return;
+  }
+
+  let addresses: Array<{ address: string }> = [];
+  try {
+    addresses = await dns.lookup(hostname, { all: true, verbatim: true });
+  } catch {
+    throw new HttpError(400, "Nao foi possivel validar o dominio informado.");
+  }
+
+  if (!addresses.length || addresses.some(({ address }) => isBlockedIpAddress(address))) {
+    throw new HttpError(400, "Nao use URLs locais, privadas ou internas.");
+  }
+}
+
+function isBlockedUrlHost(hostname: string): boolean {
+  const host = normalizeUrlHostname(hostname);
+
+  if (!host) {
+    return true;
+  }
+
+  if (
+    host === "localhost" ||
+    host === "0" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    host.endsWith(".lan") ||
+    host.endsWith(".internal") ||
+    host.endsWith(".home.arpa")
+  ) {
+    return true;
+  }
+
+  return isBlockedIpAddress(host);
+}
+
+function isBlockedIpAddress(address: string): boolean {
+  const host = normalizeUrlHostname(address);
+  const version = isIP(host);
+
+  if (version === 4) {
+    return isBlockedIpv4(host);
+  }
+
+  if (version === 6) {
+    return isBlockedIpv6(host);
+  }
+
+  return false;
+}
+
+function isBlockedIpv4(address: string): boolean {
+  const parts = address.split(".").map((part) => Number(part));
+  const [a = 0, b = 0, c = 0] = parts;
+
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    a >= 224 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 192 && b === 0 && (c === 0 || c === 2)) ||
+    (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100))) ||
+    (a === 203 && b === 0 && c === 113)
+  );
+}
+
+function isBlockedIpv6(address: string): boolean {
+  const host = normalizeUrlHostname(address);
+  const embeddedIpv4 = host.match(/(?:^|:)(\d{1,3}(?:\.\d{1,3}){3})$/)?.[1];
+
+  if (embeddedIpv4 && isBlockedIpv4(embeddedIpv4)) {
+    return true;
+  }
+
+  if (host === "::" || host === "::1") {
+    return true;
+  }
+
+  const firstHextet = Number.parseInt(host.split(":")[0] || "0", 16);
+  return (
+    firstHextet === 0 ||
+    (firstHextet >= 0xfc00 && firstHextet <= 0xfdff) ||
+    (firstHextet >= 0xfe80 && firstHextet <= 0xfebf) ||
+    (firstHextet >= 0xff00 && firstHextet <= 0xffff)
+  );
+}
+
+function normalizeUrlHostname(hostname: string): string {
+  return hostname.trim().toLowerCase().replace(/^\[(.*)\]$/, "$1").replace(/\.$/, "");
+}
+
 const contentSecurityPolicy = [
   "default-src 'self'",
   "base-uri 'self'",
   "object-src 'none'",
   "frame-ancestors 'none'",
   "form-action 'self'",
-  "img-src 'self' data: blob: https:",
-  "font-src 'self' data: https:",
+  "img-src 'self' data: blob: https://i.ytimg.com https://img.youtube.com",
+  "font-src 'self' data: https://fonts.gstatic.com",
   "style-src 'self' https://fonts.googleapis.com",
   "script-src 'self'",
-  "connect-src 'self' https://videouniversal.vercel.app https://videouniversal-backend.onrender.com https: wss:",
-  "media-src 'self' blob: https:",
+  "connect-src 'self' https://videouniversal.vercel.app https://videouniversal-backend.onrender.com https://*.ngrok-free.dev https://*.ngrok.io https://*.ngrok.app",
+  "media-src 'self' blob:",
   "worker-src 'self' blob:",
   "manifest-src 'self'",
   "upgrade-insecure-requests"
@@ -182,6 +303,7 @@ app.get("/", (_req, res) => {
 app.get("/api/info", async (req, res, next) => {
   try {
     const { url } = infoSchema.parse(parseQueryObject(req.query));
+    await assertPublicDownloadUrl(url);
     const info = await getVideoInfo(url);
     res.json(info);
   } catch (error) {
@@ -192,6 +314,7 @@ app.get("/api/info", async (req, res, next) => {
 app.post("/api/info", async (req, res, next) => {
   try {
     const { url } = infoSchema.parse(parseRequestBody(req.body));
+    await assertPublicDownloadUrl(url);
     const info = await getVideoInfo(url);
     res.json(info);
   } catch (error) {
@@ -217,6 +340,7 @@ async function handleDownloadRequest(
 
   try {
     const { url, type, quality = "best" } = downloadSchema.parse(input);
+    await assertPublicDownloadUrl(url);
 
     if (options.forceStream || streamDownloads || (isProduction && type === "video")) {
       await streamDownload(url, type, quality, res);
