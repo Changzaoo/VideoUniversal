@@ -51,7 +51,7 @@ const qualityOptions: Array<{ value: VideoQuality; label: string }> = [
 function App() {
   const [url, setUrl] = useState("");
   const [type, setType] = useState<DownloadType>("video");
-  const [quality, setQuality] = useState<VideoQuality>("best");
+  const [quality, setQuality] = useState<VideoQuality>("720p");
   const [info, setInfo] = useState<VideoInfo | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
