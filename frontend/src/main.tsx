@@ -382,17 +382,13 @@ function getApiBaseUrlCandidates(preferredApiBaseUrl?: string): string[] {
     candidates.push(preferredApiBaseUrl);
   }
 
-  if (import.meta.env.DEV) {
-    if (CONFIGURED_API_BASE_URL && isLocalApiBaseUrl(CONFIGURED_API_BASE_URL)) {
-      candidates.push(CONFIGURED_API_BASE_URL);
-    }
+  if (CONFIGURED_API_BASE_URL && isLocalApiBaseUrl(CONFIGURED_API_BASE_URL)) {
+    candidates.push(CONFIGURED_API_BASE_URL);
+  }
 
-    candidates.push(...LOCAL_API_BASE_URLS);
+  candidates.push(...LOCAL_API_BASE_URLS);
 
-    if (CONFIGURED_API_BASE_URL && !isLocalApiBaseUrl(CONFIGURED_API_BASE_URL)) {
-      candidates.push(CONFIGURED_API_BASE_URL);
-    }
-  } else if (CONFIGURED_API_BASE_URL) {
+  if (CONFIGURED_API_BASE_URL && !isLocalApiBaseUrl(CONFIGURED_API_BASE_URL)) {
     candidates.push(CONFIGURED_API_BASE_URL);
   }
 
