@@ -50,7 +50,7 @@ Voce pode copiar `.env.example` para `.env` se quiser ajustar variaveis:
 PORT=3333
 HOST=0.0.0.0
 YTDLP_BIN=yt-dlp
-FRONTEND_ORIGIN=http://localhost:5173,https://video-url-downloader.vercel.app
+FRONTEND_ORIGIN=http://localhost:5173,https://videouniversal.vercel.app
 ```
 
 ## Rodar o frontend
@@ -112,10 +112,10 @@ No Render:
 https://videouniversal-backend.onrender.com/api/health
 ```
 
-Quando a URL final do Render estiver pronta, configure o frontend na Vercel com:
+O frontend publicado em Vercel deve usar:
 
 ```env
-VITE_API_BASE_URL=https://SUA-URL-DO-RENDER/api
+VITE_API_BASE_URL=https://videouniversal-backend.onrender.com/api
 ```
 
 Depois faca redeploy do frontend na Vercel.

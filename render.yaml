@@ -19,4 +19,4 @@ services:
       - key: YTDLP_BIN
         value: yt-dlp
       - key: FRONTEND_ORIGIN
-        value: https://video-url-downloader.vercel.app,http://localhost:5173
+        value: https://videouniversal.vercel.app,http://localhost:5173

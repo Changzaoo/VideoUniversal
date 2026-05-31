@@ -8,20 +8,16 @@ import {
   Download,
   ExternalLink,
   FileVideo2,
-  Globe2,
   History,
   Link2,
   Loader2,
-  LockKeyhole,
   Music2,
   Play,
-  Search,
-  ShieldCheck,
   Sparkles,
   User2
 } from "lucide-react";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3333/api";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "https://videouniversal-backend.onrender.com/api";
 
 type DownloadType = "video" | "audio";
 type VideoQuality = "best" | "2160p" | "1440p" | "1080p" | "720p" | "480p" | "360p";
