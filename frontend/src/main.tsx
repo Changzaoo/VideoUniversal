@@ -18,7 +18,6 @@ import {
 } from "lucide-react";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "https://videouniversal-backend.onrender.com/api";
-const SIMPLE_POST_HEADERS = { "Content-Type": "text/plain;charset=UTF-8" };
 
 type DownloadType = "video" | "audio";
 type VideoQuality = "best" | "2160p" | "1440p" | "1080p" | "720p" | "480p" | "360p";
@@ -77,10 +76,8 @@ function App() {
     setLoadingInfo(true);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/info`, {
-        method: "POST",
-        headers: SIMPLE_POST_HEADERS,
-        body: JSON.stringify({ url: url.trim() })
+      const response = await fetch(buildInfoUrl(url.trim()), {
+        method: "GET"
       });
 
       const payload = await readJsonResponse<VideoInfo>(response);
@@ -110,7 +107,7 @@ function App() {
     }
   }
 
-  async function handleDownload() {
+  function handleDownload() {
     setError("");
     setSuccess("");
 
@@ -120,44 +117,20 @@ function App() {
     }
 
     setDownloading(true);
+    startBrowserDownload(buildDownloadUrl(url.trim(), type, quality));
 
-    try {
-      const response = await fetch(`${API_BASE_URL}/download`, {
-        method: "POST",
-        headers: SIMPLE_POST_HEADERS,
-        body: JSON.stringify({ url: url.trim(), type, quality: type === "video" ? quality : undefined })
-      });
-
-      if (!response.ok) {
-        await readJsonResponse(response);
-      }
-
-      const blob = await response.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = objectUrl;
-      anchor.download = getDownloadFileName(response, type, info?.title);
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(objectUrl);
-
-      const title = info?.title ?? getHostLabel(url) ?? "Download";
-      setHistory((current) => [
-        {
-          id: crypto.randomUUID(),
-          title,
-          type,
-          createdAt: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
-        },
-        ...current.slice(0, 4)
-      ]);
-      setSuccess("Download iniciado pelo navegador.");
-    } catch (requestError) {
-      setError(getErrorMessage(requestError));
-    } finally {
-      setDownloading(false);
-    }
+    const title = info?.title ?? getHostLabel(url) ?? "Download";
+    setHistory((current) => [
+      {
+        id: crypto.randomUUID(),
+        title,
+        type,
+        createdAt: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+      },
+      ...current.slice(0, 4)
+    ]);
+    setSuccess("Download enviado diretamente para o navegador.");
+    window.setTimeout(() => setDownloading(false), 1200);
   }
 
   return (
@@ -427,6 +400,45 @@ function getDownloadFileName(response: Response, type: DownloadType, title?: str
     .slice(0, 80);
 
   return `${baseName || "download"}.${type === "video" ? "mp4" : "mp3"}`;
+}
+
+function buildInfoUrl(url: string): string {
+  const params = new URLSearchParams({ url });
+  return `${API_BASE_URL}/info?${params.toString()}`;
+}
+
+function buildDownloadUrl(url: string, type: DownloadType, quality: VideoQuality): string {
+  const params = new URLSearchParams({
+    url,
+    type
+  });
+
+  if (type === "video") {
+    params.set("quality", quality);
+  }
+
+  return `${API_BASE_URL}/download?${params.toString()}`;
+}
+
+function startBrowserDownload(downloadUrl: string): void {
+  const frameName = "videouniversal-download-frame";
+  let frame = document.querySelector<HTMLIFrameElement>(`iframe[name="${frameName}"]`);
+
+  if (!frame) {
+    frame = document.createElement("iframe");
+    frame.name = frameName;
+    frame.title = "Download";
+    frame.hidden = true;
+    document.body.appendChild(frame);
+  }
+
+  const anchor = document.createElement("a");
+  anchor.href = downloadUrl;
+  anchor.target = frameName;
+  anchor.rel = "noopener";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
 }
 
 function getErrorMessage(error: unknown): string {

@@ -110,12 +110,80 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
+app.get("/api/info", async (req, res, next) => {
+  try {
+    const { url } = infoSchema.parse(parseQueryObject(req.query));
+    const info = await getVideoInfo(url);
+    res.json(info);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post("/api/info", async (req, res, next) => {
   try {
     const { url } = infoSchema.parse(parseRequestBody(req.body));
     const info = await getVideoInfo(url);
     res.json(info);
   } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/download", async (req, res, next) => {
+  const tempDir = path.join(downloadsDir, nanoid());
+
+  try {
+    const { url, type, quality = "best" } = downloadSchema.parse(parseQueryObject(req.query));
+
+    if (streamDownloads) {
+      await streamDownload(url, type, quality, res);
+      return;
+    }
+
+    await fs.mkdir(tempDir, { recursive: true });
+
+    const info = await getVideoInfo(url);
+    const outputTemplate = path.join(tempDir, "download.%(ext)s");
+    const args =
+      type === "video"
+        ? [
+            "--no-playlist",
+            "--format",
+            getVideoFormat(quality),
+            "--merge-output-format",
+            "mp4",
+            "--output",
+            outputTemplate,
+            url
+          ]
+        : [
+            "--no-playlist",
+            "--extract-audio",
+            "--audio-format",
+            "mp3",
+            "--audio-quality",
+            "0",
+            "--output",
+            outputTemplate,
+            url
+          ];
+
+    await runYtDlp(args, 10 * 60 * 1000);
+
+    const downloadedFile = await findDownloadedFile(tempDir, type === "video" ? ".mp4" : ".mp3");
+    const safeBaseName = sanitizeFileName(info.title ?? "download", "download");
+    const downloadName = `${safeBaseName}${type === "video" ? ".mp4" : ".mp3"}`;
+
+    res.download(downloadedFile, downloadName, async (error) => {
+      await cleanupTempDir(tempDir);
+
+      if (error && !res.headersSent) {
+        next(new HttpError(500, "Nao foi possivel enviar o arquivo baixado."));
+      }
+    });
+  } catch (error) {
+    await cleanupTempDir(tempDir);
     next(error);
   }
 });
@@ -179,6 +247,11 @@ app.post("/api/download", async (req, res, next) => {
 });
 
 app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  if (res.headersSent) {
+    res.end();
+    return;
+  }
+
   if (isJsonParseError(error)) {
     res.status(400).json({ error: "JSON invalido." });
     return;
@@ -275,6 +348,10 @@ function runYtDlp(args: string[], timeoutMs: number): Promise<{ stdout: string; 
 async function streamDownload(url: string, type: "video" | "audio", quality: string, res: Response): Promise<void> {
   const extension = type === "video" ? "mp4" : "mp3";
   const fileName = `videouniversal-download.${extension}`;
+  prepareDownloadResponse(res, {
+    contentType: type === "video" ? "video/mp4" : "audio/mpeg",
+    fileName
+  });
 
   if (type === "video") {
     const urls = await getVideoDirectUrls(url, quality);
@@ -472,9 +549,12 @@ function streamChildStdout(
 
       started = true;
       clearTimeout(firstByteTimer);
-      res.setHeader("Content-Type", options.contentType);
-      res.setHeader("Content-Disposition", `attachment; filename="${options.fileName}"`);
-      res.setHeader("Cache-Control", "no-store");
+      if (!res.headersSent) {
+        prepareDownloadResponse(res, {
+          contentType: options.contentType,
+          fileName: options.fileName
+        });
+      }
       res.write(chunk);
       child.stdout.pipe(res, { end: false });
     });
@@ -515,6 +595,17 @@ function streamChildStdout(
       }
     });
   });
+}
+
+function prepareDownloadResponse(res: Response, options: { contentType: string; fileName: string }): void {
+  if (res.headersSent) {
+    return;
+  }
+
+  res.setHeader("Content-Type", options.contentType);
+  res.setHeader("Content-Disposition", `attachment; filename="${options.fileName}"`);
+  res.setHeader("Cache-Control", "no-store");
+  res.flushHeaders();
 }
 
 async function findDownloadedFile(tempDir: string, preferredExtension: string): Promise<string> {
@@ -606,6 +697,18 @@ function parseRequestBody(body: unknown): unknown {
   } catch {
     throw new HttpError(400, "JSON invalido.");
   }
+}
+
+function parseQueryObject(query: Request["query"]): Record<string, string> {
+  const output: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(query)) {
+    if (typeof value === "string") {
+      output[key] = value;
+    }
+  }
+
+  return output;
 }
 
 function appendLimited(current: string, next: string, limit: number): string {
