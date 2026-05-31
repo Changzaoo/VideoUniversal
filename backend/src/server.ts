@@ -460,10 +460,7 @@ async function getVideoInfo(url: string): Promise<VideoInfo> {
 }
 
 async function getVideoInfoWithYtDlp(url: string): Promise<VideoInfo> {
-  const { stdout } = await runYtDlp(
-    buildYtDlpArgs(url, ["--dump-single-json", "--skip-download"]),
-    90 * 1000
-  );
+  const { stdout } = await runYtDlpAttempts(buildInfoAttempts(url), 90 * 1000);
 
   let rawInfo: YtDlpOutput;
 
@@ -481,6 +478,33 @@ async function getVideoInfoWithYtDlp(url: string): Promise<VideoInfo> {
     webpage_url: asString(rawInfo.webpage_url) ?? url,
     extractor: asString(rawInfo.extractor)
   };
+}
+
+function buildInfoAttempts(url: string): YtDlpAttempt[] {
+  return getYtDlpExtractorVariants(url).map((variant) => ({
+    label: `${variant.label} info`,
+    args: buildYtDlpArgs(url, ["--dump-single-json", "--skip-download"], variant.options)
+  }));
+}
+
+async function runYtDlpAttempts(attempts: YtDlpAttempt[], timeoutMs: number): Promise<{ stdout: string; stderr: string }> {
+  let lastError: unknown = null;
+
+  for (let index = 0; index < attempts.length; index += 1) {
+    const attempt = attempts[index]!;
+
+    try {
+      console.log(`yt-dlp tentativa ${index + 1}/${attempts.length}: ${attempt.label}`);
+      return await runYtDlp(attempt.args, timeoutMs);
+    } catch (error) {
+      lastError = error;
+      console.warn(`yt-dlp falhou na tentativa ${index + 1}/${attempts.length}: ${attempt.label}`, {
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new HttpError(502, "Nao foi possivel concluir a operacao com yt-dlp.");
 }
 
 async function getYoutubeOEmbedInfo(url: string): Promise<VideoInfo | null> {
