@@ -9,6 +9,7 @@ import {
   Link2,
   Loader2,
   Music2,
+  Smartphone,
 } from "lucide-react";
 
 const REMOTE_API_BASE_URL = "https://videouniversal-backend.onrender.com/api";
@@ -30,6 +31,10 @@ type DownloadResult = "direct" | "blob";
 type VideoInfo = {
   duration: number | null;
 };
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+};
 
 const qualityOptions: Array<{ value: VideoQuality; label: string }> = [
   { value: "best", label: "Auto" },
@@ -49,8 +54,11 @@ function App() {
   const [success, setSuccess] = useState("");
   const [downloading, setDownloading] = useState(false);
   const [apiBaseUrl, setApiBaseUrl] = useState(() => getApiBaseUrlCandidates()[0]);
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [installed, setInstalled] = useState(() => isStandaloneApp());
 
   const canDownload = useMemo(() => url.trim().length > 0 && !downloading, [url, downloading]);
+  const canInstall = Boolean(installPrompt && !installed);
 
   useEffect(() => {
     if (!success) {
@@ -60,6 +68,46 @@ function App() {
     const timer = window.setTimeout(() => setSuccess(""), 1800);
     return () => window.clearTimeout(timer);
   }, [success]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(display-mode: standalone)");
+    const handleDisplayModeChange = () => setInstalled(isStandaloneApp());
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as BeforeInstallPromptEvent);
+    };
+    const handleAppInstalled = () => {
+      setInstalled(true);
+      setInstallPrompt(null);
+      setSuccess("App instalado.");
+    };
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("appinstalled", handleAppInstalled);
+    mediaQuery.addEventListener("change", handleDisplayModeChange);
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", handleAppInstalled);
+      mediaQuery.removeEventListener("change", handleDisplayModeChange);
+    };
+  }, []);
+
+  async function handleInstall() {
+    if (!installPrompt) {
+      return;
+    }
+
+    const prompt = installPrompt;
+    setInstallPrompt(null);
+    await prompt.prompt();
+    const choice = await prompt.userChoice.catch(() => null);
+
+    if (choice?.outcome === "accepted") {
+      setInstalled(true);
+      setSuccess("App instalado.");
+    }
+  }
 
   async function handlePaste() {
     setError("");
@@ -110,6 +158,12 @@ function App() {
             <a className="hero-logo" href="/" aria-label="Video Universal">
               <img src="/assets/logo-full.png" alt="Video Universal" />
             </a>
+            {canInstall ? (
+              <button className="install-button" type="button" onClick={handleInstall}>
+                <Smartphone size={16} />
+                Instalar
+              </button>
+            ) : null}
             <h1 id="page-title">Baixe qualquer video da web</h1>
           </div>
 
@@ -422,6 +476,13 @@ function startBlobDownload(blob: Blob, fileName: string): void {
   window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
 }
 
+function isStandaloneApp(): boolean {
+  return (
+    window.matchMedia("(display-mode: standalone)").matches ||
+    Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone)
+  );
+}
+
 function startDirectDownload(downloadUrl: string): void {
   const anchor = document.createElement("a");
   anchor.href = downloadUrl;
@@ -460,3 +521,9 @@ function isAbortError(error: unknown): boolean {
 }
 
 createRoot(document.getElementById("root")!).render(<App />);
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+  });
+}

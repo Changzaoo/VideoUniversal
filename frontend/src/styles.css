@@ -104,6 +104,29 @@ a {
   margin-bottom: 28px;
 }
 
+.install-button {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: -8px auto 18px;
+  padding: 9px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.07);
+  font-weight: 900;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.18);
+  transition: transform 160ms ease, background 160ms ease, border-color 160ms ease;
+}
+
+.install-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(24, 136, 255, 0.45);
+  background: rgba(24, 136, 255, 0.15);
+}
+
 .hero h1 {
   margin: 0;
   color: #f6f6f1;

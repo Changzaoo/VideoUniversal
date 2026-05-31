@@ -95,6 +95,17 @@ $env:VITE_API_BASE_URL="http://localhost:3334/api"; npm run dev
 
 Sem `VITE_API_BASE_URL`, o frontend em modo dev tenta automaticamente as APIs locais `3333` e `3334` antes do backend publicado.
 
+## PWA no celular
+
+O frontend e instalavel como PWA em navegadores compativeis. A build publica inclui `manifest.webmanifest`,
+service worker, icones `192x192`/`512x512` e metatags para Android e iOS.
+
+Em Android/Chrome ou Brave, o app mostra o comando de instalacao quando o navegador libera o prompt. Em iOS,
+adicione pela opcao do navegador de colocar o site na tela inicial.
+
+Por seguranca do navegador, uma PWA nao consegue ler cookies do YouTube ou de qualquer outro dominio quando e instalada.
+Cookies de sessao devem ser exportados com autorizacao do usuario e configurados no backend por `YTDLP_COOKIES_BASE64`.
+
 ## Endpoints
 
 - `GET /api/health`: verifica se a API esta online.
