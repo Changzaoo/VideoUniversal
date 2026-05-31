@@ -116,9 +116,9 @@ ngrok config add-authtoken SEU_TOKEN
 ngrok http http://127.0.0.1:3333
 ```
 
-O frontend publicado tenta primeiro a API do tunel configurado no codigo, enviando o header
-`ngrok-skip-browser-warning` para evitar a tela intermediaria do ngrok gratuito. Se o tunel estiver offline, ele tenta
-as APIs locais e depois o backend do Render.
+O frontend publicado tenta primeiro `/pc-api`, uma rota da Vercel que repassa para o tunel configurado no `vercel.json`.
+Esse proxy evita a tela intermediaria do ngrok gratuito no celular. Se o tunel estiver offline, o app tenta as APIs
+locais e depois o backend do Render.
 
 ## Endpoints
 

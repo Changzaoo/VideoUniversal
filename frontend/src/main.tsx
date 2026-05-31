@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 
 const REMOTE_API_BASE_URL = "https://videouniversal-backend.onrender.com/api";
-const NGROK_API_BASE_URL = "https://prance-mummified-subscript.ngrok-free.dev/api";
+const NGROK_API_BASE_URL = "/pc-api";
 const DIRECT_DOWNLOAD_MIN_DURATION_SECONDS = 5 * 60;
 const LOCAL_HEALTH_TIMEOUT_MS = 3500;
 const REMOTE_HEALTH_TIMEOUT_MS = 30000;
@@ -486,6 +486,10 @@ function startBlobDownload(blob: Blob, fileName: string): void {
 }
 
 function isNgrokApiBaseUrl(apiBaseUrl: string): boolean {
+  if (apiBaseUrl === "/pc-api" || apiBaseUrl.startsWith("/pc-api/")) {
+    return true;
+  }
+
   try {
     const hostname = new URL(apiBaseUrl).hostname.toLowerCase();
     return hostname.endsWith(".ngrok-free.dev") || hostname.endsWith(".ngrok.io") || hostname.endsWith(".ngrok.app");

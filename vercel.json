@@ -101,6 +101,10 @@
   ],
   "rewrites": [
     {
+      "source": "/pc-api/:path*",
+      "destination": "https://prance-mummified-subscript.ngrok-free.dev/api/:path*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
