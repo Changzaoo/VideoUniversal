@@ -11,17 +11,17 @@
 
 | ID | Arquivos alterados | Como foi corrigida | Como testar |
 | --- | --- | --- | --- |
-| URL_002 | `vercel.json`, `backend/src/server.ts` | Vercel recebe HSTS em producao e o backend Express redireciona `x-forwarded-proto=http` para HTTPS sem afetar localhost. | `curl -I https://videouniversal.vercel.app/` e testar HTTP apos redeploy. |
+| URL_002 | `vercel.json`, `backend/src/server.ts` | Vercel recebe HSTS em producao, possui redirect 301 quando `x-forwarded-proto=http`, e o backend Express tambem redireciona HTTP para HTTPS sem afetar localhost. | `curl -I http://videouniversal.vercel.app/` apos redeploy. |
 | HEAD_002 | `vercel.json`, `backend/src/server.ts` | Adicionada Content-Security-Policy global. A CSP foi endurecida sem `unsafe-inline` e sem `unsafe-eval`, mantendo Google Fonts e backend oficial. | `curl -I https://videouniversal.vercel.app/` |
 | HEAD_003 | `vercel.json`, `backend/src/server.ts` | Adicionado `X-Frame-Options: DENY` e `frame-ancestors 'none'`. | `curl -I https://videouniversal.vercel.app/` |
 | HEAD_004 | `vercel.json`, `backend/src/server.ts` | Adicionado `X-Content-Type-Options: nosniff`. | `curl -I https://videouniversal.vercel.app/` |
 | HEAD_005 | `vercel.json`, `backend/src/server.ts` | Adicionado `Referrer-Policy: strict-origin-when-cross-origin`. | `curl -I https://videouniversal.vercel.app/` |
 | HEAD_008 | `vercel.json`, `backend/src/server.ts` | Adicionado `Permissions-Policy` bloqueando camera, microfone, geolocalizacao, pagamento, USB, Bluetooth e sensores. | `curl -I https://videouniversal.vercel.app/` |
-| CORS_001 | `backend/src/server.ts`, `render.yaml` | Removida permissao ampla para previews Vercel. CORS agora usa `ALLOWED_ORIGINS`, permite localhost apenas fora de producao, limita metodos e headers, e nunca usa wildcard. | `curl -i -H "Origin: https://evil.example" https://videouniversal-backend.onrender.com/api/health` |
+| CORS_001 | `vercel.json`, `backend/src/server.ts`, `render.yaml` | Removida permissao ampla para previews Vercel. A Vercel publica `Access-Control-Allow-Origin: https://videouniversal.vercel.app` em vez de `*`; o backend usa `ALLOWED_ORIGINS`, permite localhost apenas fora de producao, limita metodos e headers, e nunca usa wildcard. | `curl -i -H "Origin: https://evil.example" https://videouniversal.vercel.app/` |
 | API_001 | `vercel.json`, `backend/src/server.ts` | Rotas `/swagger`, `/api-docs`, `/docs`, `/openapi`, `/openapi.json` e `/swagger.json` retornam 404. | `curl -i https://videouniversal.vercel.app/swagger` |
 | API_002 | `vercel.json`, `backend/src/server.ts` | `/graphql` retorna 404. Nao havia servidor GraphQL ou dependencias GraphQL no projeto. | `curl -i https://videouniversal.vercel.app/graphql` |
 | AUTHZ_001 | `vercel.json`, `backend/src/server.ts` | Rotas administrativas reservadas no backend exigem Bearer token ou `X-Admin-Token`; sem token retorna 401 e token invalido retorna 403. Na Vercel, rotas admin da SPA retornam 403. | `curl -i https://videouniversal.vercel.app/admin` e `curl -i https://videouniversal-backend.onrender.com/admin` |
-| API_003 | `vercel.json`, `backend/src/server.ts` | Rotas de debug/status/teste/diagnostico retornam 404. Healthcheck ficou minimo: `{ "ok": true }`. | `curl -i https://videouniversal-backend.onrender.com/api/health` |
+| API_003 | `vercel.json`, `backend/src/server.ts` | Rotas de debug/status/teste/diagnostico, incluindo `/server-status`, retornam 404. Healthcheck ficou minimo: `{ "ok": true }`. | `curl -i https://videouniversal.vercel.app/server-status` |
 | SECRET_004 | `.gitignore`, `backend/.dockerignore`, `backend/.env.example`, `frontend/.env.example`, `vercel.json`, `backend/src/server.ts` | Arquivos sensiveis foram adicionados ao ignore, exemplos de env ficaram sem valores reais, rotas de arquivos sensiveis retornam 404 antes do fallback da SPA e no backend. | `curl -i https://videouniversal.vercel.app/.env` |
 
 ## Outras Alteracoes
@@ -63,6 +63,7 @@ Resultado esperado: 404 ou 403, nunca conteudo do arquivo.
 Testar CORS na Vercel e no backend:
 
 ```bash
+curl -i -H "Origin: https://evil.example" https://videouniversal.vercel.app/
 curl -i -H "Origin: https://evil.example" https://videouniversal.vercel.app/api/ALGUMA_ROTA
 curl -i -H "Origin: https://evil.example" https://videouniversal-backend.onrender.com/api/health
 curl -i -H "Origin: https://videouniversal.vercel.app" https://videouniversal-backend.onrender.com/api/health
@@ -106,6 +107,23 @@ Testar healthcheck minimo:
 ```bash
 curl -i https://videouniversal-backend.onrender.com/api/health
 ```
+
+Testar bloqueio de `/server-status`:
+
+```bash
+curl -i https://videouniversal.vercel.app/server-status
+curl -i https://videouniversal-backend.onrender.com/server-status
+```
+
+Resultado esperado: 404.
+
+Testar redirect HTTP para HTTPS:
+
+```bash
+curl -I http://videouniversal.vercel.app/
+```
+
+Resultado esperado: status 301 ou 308 apontando para `https://videouniversal.vercel.app/`.
 
 Resultado esperado:
 

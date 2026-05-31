@@ -31,8 +31,30 @@
         {
           "key": "Strict-Transport-Security",
           "value": "max-age=63072000; includeSubDomains; preload"
+        },
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "https://videouniversal.vercel.app"
+        },
+        {
+          "key": "Vary",
+          "value": "Origin"
         }
       ]
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "header",
+          "key": "x-forwarded-proto",
+          "value": "http"
+        }
+      ],
+      "destination": "https://videouniversal.vercel.app/:path*",
+      "statusCode": 301
     }
   ],
   "routes": [
@@ -44,7 +66,9 @@
         "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "strict-origin-when-cross-origin",
         "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), bluetooth=(), magnetometer=(), gyroscope=(), accelerometer=()",
-        "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload"
+        "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
+        "Access-Control-Allow-Origin": "https://videouniversal.vercel.app",
+        "Vary": "Origin"
       },
       "continue": true
     },
@@ -53,7 +77,7 @@
       "status": 403
     },
     {
-      "src": "/(?:api(?:/.*)?|graphql(?:/.*)?|swagger(?:/.*)?|api-docs(?:/.*)?|docs(?:/.*)?|openapi(?:\\.json)?|swagger\\.json|debug(?:/.*)?|status(?:/.*)?|diagnostics(?:/.*)?|diag(?:/.*)?|test(?:/.*)?|\\.env(?:\\..*)?|env|config\\.json|secrets\\.json|.*\\.(?:pem|key)|\\.git(?:/.*)?)",
+      "src": "/(?:api(?:/.*)?|graphql(?:/.*)?|swagger(?:/.*)?|api-docs(?:/.*)?|docs(?:/.*)?|openapi(?:\\.json)?|swagger\\.json|debug(?:/.*)?|server-status(?:/.*)?|status(?:/.*)?|diagnostics(?:/.*)?|diag(?:/.*)?|test(?:/.*)?|\\.env(?:\\..*)?|env|config\\.json|secrets\\.json|.*\\.(?:pem|key)|\\.git(?:/.*)?)",
       "status": 404
     }
   ],

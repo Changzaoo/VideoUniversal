@@ -431,8 +431,8 @@ function isReservedPublicPath(pathname: string): boolean {
     /^\/\.git(?:\/.*)?$/i,
     /^\/(?:swagger|api-docs|docs|openapi(?:\.json)?|swagger\.json)(?:\/.*)?$/i,
     /^\/graphql(?:\/.*)?$/i,
-    /^\/(?:debug|status|diagnostics|diag|test)(?:\/.*)?$/i,
-    /^\/api\/(?:debug|status|diagnostics|diag|test)(?:\/.*)?$/i
+    /^\/(?:debug|server-status|status|diagnostics|diag|test)(?:\/.*)?$/i,
+    /^\/api\/(?:debug|server-status|status|diagnostics|diag|test)(?:\/.*)?$/i
   ].some((pattern) => pattern.test(pathname));
 }
 
