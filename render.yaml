@@ -19,7 +19,9 @@ services:
       - key: YTDLP_BIN
         value: yt-dlp
       - key: STREAM_DOWNLOADS
-        value: true
+        value: false
+      - key: FFMPEG_BIN
+        value: ffmpeg
       - key: ALLOWED_ORIGINS
         value: https://videouniversal.vercel.app
       - key: ADMIN_TOKEN

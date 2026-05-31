@@ -50,8 +50,11 @@ Voce pode copiar `.env.example` para `.env` se quiser ajustar variaveis:
 PORT=3333
 HOST=0.0.0.0
 YTDLP_BIN=yt-dlp
+FFMPEG_BIN=ffmpeg
 STREAM_DOWNLOADS=false
 ALLOWED_ORIGINS=https://videouniversal.vercel.app
+YTDLP_COOKIES_PATH=
+YTDLP_PROXY=
 ADMIN_TOKEN=
 ```
 
@@ -102,7 +105,7 @@ O repositorio inclui:
 - `render.yaml` na raiz, com um Web Service Docker chamado `videouniversal-backend`.
 - `backend/Dockerfile`, que instala Node.js, Python, `yt-dlp` e FFmpeg.
 - Health check em `/api/health`, retornando apenas `{ "ok": true }`.
-- `STREAM_DOWNLOADS=true` no Render, para evitar timeout/502 em downloads maiores.
+- `STREAM_DOWNLOADS=false` no Render, para baixar em arquivo temporario, mesclar com FFmpeg e so entao enviar o arquivo ao navegador.
 
 No Render:
 
@@ -124,6 +127,14 @@ VITE_API_BASE_URL=https://videouniversal-backend.onrender.com/api
 ```
 
 Depois faca redeploy do frontend na Vercel.
+
+## Instagram e sites com login
+
+O backend envia `User-Agent`, `Accept-Language`, referer, retries e usa FFmpeg para aumentar a compatibilidade com Instagram e outros sites suportados pelo `yt-dlp`. Ainda assim, alguns links podem exigir login, cookies, nao estar publicos, estar bloqueados por regiao ou usar DRM. Nesses casos, configure cookies autorizados no servidor com:
+
+```env
+YTDLP_COOKIES_PATH=/caminho/para/cookies.txt
+```
 
 ## Aviso de uso
 

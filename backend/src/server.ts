@@ -18,8 +18,14 @@ const isProduction = process.env.NODE_ENV === "production";
 const port = Number(process.env.PORT ?? 3333);
 const host = process.env.HOST ?? "0.0.0.0";
 const ytdlpBin = process.env.YTDLP_BIN?.trim() || "yt-dlp";
+const ffmpegBin = process.env.FFMPEG_BIN?.trim() || "ffmpeg";
+const ytdlpCookiesPath = process.env.YTDLP_COOKIES_PATH?.trim();
+const ytdlpProxy = process.env.YTDLP_PROXY?.trim();
 const streamDownloads = process.env.STREAM_DOWNLOADS === "true";
 const allowedOrigins = getAllowedOrigins(process.env.ALLOWED_ORIGINS ?? process.env.FRONTEND_ORIGIN);
+const browserUserAgent =
+  process.env.YTDLP_USER_AGENT?.trim() ||
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
 const corsOptions: CorsOptions = {
   origin(origin, callback) {
     if (!origin || allowedOrigins.has(origin)) {
@@ -149,10 +155,14 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
 });
 
+app.get("/", (_req, res) => {
+  res.redirect(302, process.env.FRONTEND_ORIGIN?.trim() || "https://videouniversal.vercel.app");
+});
+
 app.get("/api/info", async (req, res, next) => {
   try {
     const { url } = infoSchema.parse(parseQueryObject(req.query));
-    const info = await getVideoInfo(url);
+    const info = await getVideoInfo(url).catch(() => null);
     res.json(info);
   } catch (error) {
     next(error);
@@ -170,67 +180,18 @@ app.post("/api/info", async (req, res, next) => {
 });
 
 app.get("/api/download", async (req, res, next) => {
-  const tempDir = path.join(downloadsDir, nanoid());
-
-  try {
-    const { url, type, quality = "best" } = downloadSchema.parse(parseQueryObject(req.query));
-
-    if (streamDownloads) {
-      await streamDownload(url, type, quality, res);
-      return;
-    }
-
-    await fs.mkdir(tempDir, { recursive: true });
-
-    const info = await getVideoInfo(url);
-    const outputTemplate = path.join(tempDir, "download.%(ext)s");
-    const args =
-      type === "video"
-        ? [
-            "--no-playlist",
-            "--format",
-            getVideoFormat(quality),
-            "--merge-output-format",
-            "mp4",
-            "--output",
-            outputTemplate,
-            url
-          ]
-        : [
-            "--no-playlist",
-            "--extract-audio",
-            "--audio-format",
-            "mp3",
-            "--audio-quality",
-            "0",
-            "--output",
-            outputTemplate,
-            url
-          ];
-
-    await runYtDlp(args, 10 * 60 * 1000);
-
-    const downloadedFile = await findDownloadedFile(tempDir, type === "video" ? ".mp4" : ".mp3");
-    const downloadName = buildDownloadFileName(info.title, type);
-
-    res.download(downloadedFile, downloadName, async (error) => {
-      await cleanupTempDir(tempDir);
-
-      if (error && !res.headersSent) {
-        next(new HttpError(500, "Nao foi possivel enviar o arquivo baixado."));
-      }
-    });
-  } catch (error) {
-    await cleanupTempDir(tempDir);
-    next(error);
-  }
+  await handleDownloadRequest(parseQueryObject(req.query), res, next);
 });
 
 app.post("/api/download", async (req, res, next) => {
+  await handleDownloadRequest(parseRequestBody(req.body), res, next);
+});
+
+async function handleDownloadRequest(input: unknown, res: Response, next: NextFunction): Promise<void> {
   const tempDir = path.join(downloadsDir, nanoid());
 
   try {
-    const { url, type, quality = "best" } = downloadSchema.parse(parseRequestBody(req.body));
+    const { url, type, quality = "best" } = downloadSchema.parse(input);
 
     if (streamDownloads) {
       await streamDownload(url, type, quality, res);
@@ -243,32 +204,30 @@ app.post("/api/download", async (req, res, next) => {
     const outputTemplate = path.join(tempDir, "download.%(ext)s");
     const args =
       type === "video"
-        ? [
-            "--no-playlist",
+        ? buildYtDlpArgs(url, [
             "--format",
             getVideoFormat(quality),
             "--merge-output-format",
             "mp4",
+            "--remux-video",
+            "mp4",
             "--output",
-            outputTemplate,
-            url
-          ]
-        : [
-            "--no-playlist",
+            outputTemplate
+          ])
+        : buildYtDlpArgs(url, [
             "--extract-audio",
             "--audio-format",
             "mp3",
             "--audio-quality",
             "0",
             "--output",
-            outputTemplate,
-            url
-          ];
+            outputTemplate
+          ]);
 
     await runYtDlp(args, 10 * 60 * 1000);
 
     const downloadedFile = await findDownloadedFile(tempDir, type === "video" ? ".mp4" : ".mp3");
-    const downloadName = buildDownloadFileName(info.title, type);
+    const downloadName = buildDownloadFileName(info?.title ?? null, type);
 
     res.download(downloadedFile, downloadName, async (error) => {
       await cleanupTempDir(tempDir);
@@ -281,7 +240,7 @@ app.post("/api/download", async (req, res, next) => {
     await cleanupTempDir(tempDir);
     next(error);
   }
-});
+}
 
 app.use((_req, res) => {
   res.status(404).json({ error: "Nao encontrado." });
@@ -502,7 +461,7 @@ async function getVideoInfo(url: string): Promise<VideoInfo> {
 
 async function getVideoInfoWithYtDlp(url: string): Promise<VideoInfo> {
   const { stdout } = await runYtDlp(
-    ["--dump-single-json", "--skip-download", "--no-warnings", "--no-playlist", url],
+    buildYtDlpArgs(url, ["--dump-single-json", "--skip-download"]),
     90 * 1000
   );
 
@@ -563,6 +522,48 @@ async function getYoutubeOEmbedInfo(url: string): Promise<VideoInfo | null> {
   }
 }
 
+function buildYtDlpArgs(url: string, operationArgs: string[]): string[] {
+  const args = [
+    "--no-warnings",
+    "--no-playlist",
+    "--socket-timeout",
+    "30",
+    "--retries",
+    "5",
+    "--fragment-retries",
+    "5",
+    "--extractor-retries",
+    "3",
+    "--retry-sleep",
+    "linear=1:5:2",
+    "--force-ipv4",
+    "--user-agent",
+    browserUserAgent,
+    "--add-header",
+    "Accept-Language: pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+    "--referer",
+    getReferer(url)
+  ];
+
+  if (ytdlpCookiesPath) {
+    args.push("--cookies", ytdlpCookiesPath);
+  }
+
+  if (ytdlpProxy) {
+    args.push("--proxy", ytdlpProxy);
+  }
+
+  return [...args, ...operationArgs, url];
+}
+
+function getReferer(value: string): string {
+  try {
+    return new URL(value).href;
+  } catch {
+    return "https://www.google.com/";
+  }
+}
+
 function runYtDlp(args: string[], timeoutMs: number): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(ytdlpBin, args, {
@@ -608,8 +609,8 @@ function runYtDlp(args: string[], timeoutMs: number): Promise<{ stdout: string; 
 }
 
 async function streamDownload(url: string, type: "video" | "audio", quality: string, res: Response): Promise<void> {
-  const info = await getVideoInfo(url);
-  const fileName = buildDownloadFileName(info.title, type);
+  const info = await getVideoInfo(url).catch(() => null);
+  const fileName = buildDownloadFileName(info?.title ?? null, type);
 
   if (type === "video") {
     const child = spawn(ytdlpBin, getStreamingVideoArgs(url, quality), {
@@ -631,7 +632,7 @@ async function streamDownload(url: string, type: "video" | "audio", quality: str
     windowsHide: true
   });
   const ffmpeg = spawn(
-    "ffmpeg",
+    ffmpegBin,
     ["-hide_banner", "-loglevel", "error", "-i", "pipe:0", "-vn", "-codec:a", "libmp3lame", "-q:a", "0", "-f", "mp3", "pipe:1"],
     {
       shell: false,
@@ -661,39 +662,21 @@ async function streamDownload(url: string, type: "video" | "audio", quality: str
 }
 
 function getStreamingVideoArgs(url: string, quality: string): string[] {
-  return [
-    "--no-playlist",
-    "--no-warnings",
-    "--socket-timeout",
-    "20",
-    "--retries",
-    "3",
-    "--fragment-retries",
-    "3",
+  return buildYtDlpArgs(url, [
     "--format",
     getStreamingVideoFormat(quality),
     "--output",
-    "-",
-    url
-  ];
+    "-"
+  ]);
 }
 
 function getStreamingAudioArgs(url: string): string[] {
-  return [
-    "--no-playlist",
-    "--no-warnings",
-    "--socket-timeout",
-    "20",
-    "--retries",
-    "3",
-    "--fragment-retries",
-    "3",
+  return buildYtDlpArgs(url, [
     "--format",
     "bestaudio/best",
     "--output",
-    "-",
-    url
-  ];
+    "-"
+  ]);
 }
 
 function streamChildStdout(
@@ -910,16 +893,16 @@ function getVideoFormat(quality: string): string {
 
 function getStreamingVideoFormat(quality: string): string {
   if (quality === "best") {
-    return "b[ext=mp4]/best[ext=mp4]";
+    return "b[ext=mp4]/best[ext=mp4]/b/best";
   }
 
   const maxHeight = Number.parseInt(quality, 10);
 
   if (!Number.isFinite(maxHeight)) {
-    return "b[ext=mp4]/best[ext=mp4]";
+    return "b[ext=mp4]/best[ext=mp4]/b/best";
   }
 
-  return `b[height<=${maxHeight}][ext=mp4]/best[height<=${maxHeight}][ext=mp4]/b[ext=mp4]/best[ext=mp4]`;
+  return `b[height<=${maxHeight}][ext=mp4]/best[height<=${maxHeight}][ext=mp4]/b[ext=mp4]/best[ext=mp4]/b/best`;
 }
 
 function getYoutubeVideoId(value: string): string | null {
@@ -996,6 +979,10 @@ function normalizeYtDlpError(message: string): string {
 
   if (/unsupported url|no suitable extractor/i.test(compact)) {
     return "O yt-dlp nao reconheceu esta URL.";
+  }
+
+  if (/instagram/i.test(compact) && /private|login|sign in|cookies|not available|checkpoint/i.test(compact)) {
+    return "O Instagram bloqueou o acesso automatico a este conteudo. Tente uma URL publica; se o conteudo exige login, configure cookies autorizados no servidor.";
   }
 
   if (/private|login|sign in|cookies/i.test(compact)) {

@@ -76,26 +76,22 @@ function App() {
     setSuccess("");
 
     if (!isHttpUrl(url)) {
-      setError("Cole uma URL valida começando com http:// ou https://.");
+      setError("Cole uma URL valida comecando com http:// ou https://.");
       return;
     }
 
     setDownloading(true);
 
-    let resolvedApiBaseUrl: string;
-
     try {
-      resolvedApiBaseUrl = await resolveApiBaseUrl(apiBaseUrl);
+      const resolvedApiBaseUrl = await resolveApiBaseUrl(apiBaseUrl);
       setApiBaseUrl(resolvedApiBaseUrl);
+      await downloadFile(resolvedApiBaseUrl, url.trim(), type, quality);
+      setSuccess("Arquivo pronto. O download foi iniciado.");
     } catch (requestError) {
-      setDownloading(false);
       setError(getErrorMessage(requestError));
-      return;
+    } finally {
+      setDownloading(false);
     }
-
-    startBrowserDownload(buildDownloadUrl(resolvedApiBaseUrl, url.trim(), type, quality));
-    setSuccess("Download enviado diretamente para o navegador.");
-    window.setTimeout(() => setDownloading(false), 1200);
   }
 
   return (
@@ -170,7 +166,7 @@ function App() {
 
               <button className="primary-button download-inline" type="submit" disabled={!canDownload}>
                 {downloading ? <Loader2 className="spin" size={18} /> : <Download size={18} />}
-                {downloading ? "..." : "Baixar"}
+                {downloading ? "Baixando" : "Baixar"}
               </button>
             </div>
           </form>
@@ -235,28 +231,83 @@ async function resolveApiBaseUrl(preferredApiBaseUrl: string): Promise<string> {
   throw lastError ?? new Error("Nao encontrei a API online.");
 }
 
-async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
+async function fetchWithTimeout(url: string, timeoutMs: number, init?: RequestInit): Promise<Response> {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    return await fetch(url, { signal: controller.signal });
+    return await fetch(url, { ...init, signal: controller.signal });
   } finally {
     window.clearTimeout(timer);
   }
 }
 
-function buildDownloadUrl(apiBaseUrl: string, url: string, type: DownloadType, quality: VideoQuality): string {
-  const params = new URLSearchParams({
-    url,
-    type
+async function downloadFile(
+  apiBaseUrl: string,
+  url: string,
+  type: DownloadType,
+  quality: VideoQuality
+): Promise<void> {
+  const payload = type === "video" ? { url, type, quality } : { url, type };
+  const response = await fetch(`${apiBaseUrl}/download`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
   });
 
-  if (type === "video") {
-    params.set("quality", quality);
+  if (!response.ok) {
+    throw new Error(await readApiError(response));
   }
 
-  return `${apiBaseUrl}/download?${params.toString()}`;
+  const blob = await response.blob();
+
+  if (!blob.size) {
+    throw new Error("A API respondeu sem enviar arquivo.");
+  }
+
+  const fileName =
+    getFileNameFromContentDisposition(response.headers.get("Content-Disposition")) ??
+    `download.${type === "video" ? "mp4" : "mp3"}`;
+  startBlobDownload(blob, fileName);
+}
+
+async function readApiError(response: Response): Promise<string> {
+  const contentType = response.headers.get("Content-Type") ?? "";
+
+  if (contentType.includes("application/json")) {
+    const payload = (await response.json().catch(() => null)) as { error?: unknown } | null;
+    if (typeof payload?.error === "string" && payload.error.trim()) {
+      return payload.error;
+    }
+  }
+
+  const text = await response.text().catch(() => "");
+  return text.trim() || `Nao foi possivel baixar este conteudo. Codigo ${response.status}.`;
+}
+
+function getFileNameFromContentDisposition(header: string | null): string | null {
+  if (!header) {
+    return null;
+  }
+
+  const encodedMatch = header.match(/filename\*=UTF-8''([^;]+)/i);
+  if (encodedMatch?.[1]) {
+    try {
+      return decodeURIComponent(encodedMatch[1].trim());
+    } catch {
+      return encodedMatch[1].trim();
+    }
+  }
+
+  const quotedMatch = header.match(/filename="([^"]+)"/i);
+  if (quotedMatch?.[1]) {
+    return quotedMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+  }
+
+  const plainMatch = header.match(/filename=([^;]+)/i);
+  return plainMatch?.[1]?.trim() || null;
 }
 
 function getApiBaseUrlCandidates(preferredApiBaseUrl?: string): string[] {
@@ -298,13 +349,16 @@ function isLocalApiBaseUrl(apiBaseUrl: string): boolean {
   }
 }
 
-function startBrowserDownload(downloadUrl: string): void {
+function startBlobDownload(blob: Blob, fileName: string): void {
+  const downloadUrl = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = downloadUrl;
+  anchor.download = fileName;
   anchor.rel = "noopener";
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
 }
 
 function getErrorMessage(error: unknown): string {
