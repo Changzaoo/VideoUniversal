@@ -106,6 +106,20 @@ adicione pela opcao do navegador de colocar o site na tela inicial.
 Por seguranca do navegador, uma PWA nao consegue ler cookies do YouTube ou de qualquer outro dominio quando e instalada.
 Cookies de sessao devem ser exportados com autorizacao do usuario e configurados no backend por `YTDLP_COOKIES_BASE64`.
 
+## Backend local pelo ngrok
+
+Para usar este PC como backend do app instalado no celular, mantenha o backend local rodando na porta `3333` e abra
+um tunel ngrok para essa porta:
+
+```powershell
+ngrok config add-authtoken SEU_TOKEN
+ngrok http http://127.0.0.1:3333
+```
+
+O frontend publicado tenta primeiro a API do tunel configurado no codigo, enviando o header
+`ngrok-skip-browser-warning` para evitar a tela intermediaria do ngrok gratuito. Se o tunel estiver offline, ele tenta
+as APIs locais e depois o backend do Render.
+
 ## Endpoints
 
 - `GET /api/health`: verifica se a API esta online.

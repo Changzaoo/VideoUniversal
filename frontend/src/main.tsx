@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 const REMOTE_API_BASE_URL = "https://videouniversal-backend.onrender.com/api";
+const NGROK_API_BASE_URL = "https://prance-mummified-subscript.ngrok-free.dev/api";
 const DIRECT_DOWNLOAD_MIN_DURATION_SECONDS = 5 * 60;
 const LOCAL_HEALTH_TIMEOUT_MS = 3500;
 const REMOTE_HEALTH_TIMEOUT_MS = 30000;
@@ -278,7 +279,9 @@ async function resolveApiBaseUrl(preferredApiBaseUrl: string): Promise<string> {
 
   for (const apiBaseUrl of getApiBaseUrlCandidates(preferredApiBaseUrl)) {
     try {
-      const response = await fetchWithTimeout(`${apiBaseUrl}/health`, getHealthTimeoutMs(apiBaseUrl));
+      const response = await fetchWithTimeout(`${apiBaseUrl}/health`, getHealthTimeoutMs(apiBaseUrl), {
+        headers: getApiRequestHeaders(apiBaseUrl)
+      });
 
       if (response.ok) {
         return apiBaseUrl;
@@ -313,7 +316,7 @@ async function downloadFile(
   type: DownloadType,
   quality: VideoQuality
 ): Promise<DownloadResult> {
-  if (type === "video") {
+  if (type === "video" && !isNgrokApiBaseUrl(apiBaseUrl)) {
     startDirectDownload(buildDownloadUrl(apiBaseUrl, url, type, quality));
     return "direct";
   }
@@ -327,10 +330,10 @@ async function downloadFile(
 
   const response = await fetch(`${apiBaseUrl}/download`, {
     method: "POST",
-    headers: {
+    headers: getApiRequestHeaders(apiBaseUrl, {
       "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ url, type })
+    }),
+    body: JSON.stringify({ url, type, quality })
   });
 
   if (!response.ok) {
@@ -345,7 +348,7 @@ async function downloadFile(
 
   const fileName =
     getFileNameFromContentDisposition(response.headers.get("Content-Disposition")) ??
-    "download.mp3";
+    `download.${type === "video" ? "mp4" : "mp3"}`;
   startBlobDownload(blob, fileName);
   return "blob";
 }
@@ -353,9 +356,9 @@ async function downloadFile(
 async function getVideoInfo(apiBaseUrl: string, url: string): Promise<VideoInfo> {
   const response = await fetchWithTimeout(`${apiBaseUrl}/info`, VIDEO_INFO_TIMEOUT_MS, {
     method: "POST",
-    headers: {
+    headers: getApiRequestHeaders(apiBaseUrl, {
       "Content-Type": "application/json"
-    },
+    }),
     body: JSON.stringify({ url })
   });
 
@@ -440,6 +443,10 @@ function getApiBaseUrlCandidates(preferredApiBaseUrl?: string): string[] {
     candidates.push(CONFIGURED_API_BASE_URL);
   }
 
+  if (NGROK_API_BASE_URL) {
+    candidates.push(NGROK_API_BASE_URL);
+  }
+
   candidates.push(...LOCAL_API_BASE_URLS);
 
   if (CONFIGURED_API_BASE_URL && !isLocalApiBaseUrl(CONFIGURED_API_BASE_URL)) {
@@ -474,6 +481,26 @@ function startBlobDownload(blob: Blob, fileName: string): void {
   anchor.click();
   anchor.remove();
   window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+}
+
+function isNgrokApiBaseUrl(apiBaseUrl: string): boolean {
+  try {
+    const hostname = new URL(apiBaseUrl).hostname.toLowerCase();
+    return hostname.endsWith(".ngrok-free.dev") || hostname.endsWith(".ngrok.io") || hostname.endsWith(".ngrok.app");
+  } catch {
+    return false;
+  }
+}
+
+function getApiRequestHeaders(apiBaseUrl: string, headers: HeadersInit = {}): HeadersInit {
+  if (!isNgrokApiBaseUrl(apiBaseUrl)) {
+    return headers;
+  }
+
+  return {
+    ...headers,
+    "ngrok-skip-browser-warning": "true"
+  };
 }
 
 function isStandaloneApp(): boolean {

@@ -41,7 +41,7 @@ const corsOptions: CorsOptions = {
     callback(new HttpError(403, "Origem nao permitida pelo CORS."));
   },
   methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Ngrok-Skip-Browser-Warning"],
   exposedHeaders: ["Content-Disposition"],
   credentials: false,
   optionsSuccessStatus: 204
