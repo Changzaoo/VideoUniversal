@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 
 const REMOTE_API_BASE_URL = "https://videouniversal-backend.onrender.com/api";
+const DIRECT_DOWNLOAD_MIN_DURATION_SECONDS = 5 * 60;
 const LOCAL_API_BASE_URLS = [
   "http://localhost:3333/api",
   "http://localhost:3334/api",
@@ -22,6 +23,10 @@ const CONFIGURED_API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_BAS
 
 type DownloadType = "video" | "audio";
 type VideoQuality = "best" | "2160p" | "1440p" | "1080p" | "720p" | "480p" | "360p";
+type DownloadResult = "direct" | "blob";
+type VideoInfo = {
+  duration: number | null;
+};
 
 const qualityOptions: Array<{ value: VideoQuality; label: string }> = [
   { value: "best", label: "Auto" },
@@ -85,8 +90,8 @@ function App() {
     try {
       const resolvedApiBaseUrl = await resolveApiBaseUrl(apiBaseUrl);
       setApiBaseUrl(resolvedApiBaseUrl);
-      await downloadFile(resolvedApiBaseUrl, url.trim(), type, quality);
-      setSuccess("Arquivo pronto. O download foi iniciado.");
+      const result = await downloadFile(resolvedApiBaseUrl, url.trim(), type, quality);
+      setSuccess(result === "direct" ? "Download iniciado no navegador." : "Arquivo pronto. O download foi iniciado.");
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -247,7 +252,14 @@ async function downloadFile(
   url: string,
   type: DownloadType,
   quality: VideoQuality
-): Promise<void> {
+): Promise<DownloadResult> {
+  const info = await getVideoInfo(apiBaseUrl, url).catch(() => null);
+
+  if (shouldUseDirectDownload(info, type)) {
+    startDirectDownload(buildDownloadUrl(apiBaseUrl, url, type, quality));
+    return "direct";
+  }
+
   const payload = type === "video" ? { url, type, quality } : { url, type };
   const response = await fetch(`${apiBaseUrl}/download`, {
     method: "POST",
@@ -271,6 +283,45 @@ async function downloadFile(
     getFileNameFromContentDisposition(response.headers.get("Content-Disposition")) ??
     `download.${type === "video" ? "mp4" : "mp3"}`;
   startBlobDownload(blob, fileName);
+  return "blob";
+}
+
+async function getVideoInfo(apiBaseUrl: string, url: string): Promise<VideoInfo> {
+  const response = await fetchWithTimeout(`${apiBaseUrl}/info`, 15000, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ url })
+  });
+
+  if (!response.ok) {
+    throw new Error(await readApiError(response));
+  }
+
+  return (await response.json()) as VideoInfo;
+}
+
+function shouldUseDirectDownload(info: VideoInfo | null, type: DownloadType): boolean {
+  if (!info?.duration) {
+    return false;
+  }
+
+  const threshold = type === "audio" ? DIRECT_DOWNLOAD_MIN_DURATION_SECONDS * 2 : DIRECT_DOWNLOAD_MIN_DURATION_SECONDS;
+  return info.duration >= threshold;
+}
+
+function buildDownloadUrl(apiBaseUrl: string, url: string, type: DownloadType, quality: VideoQuality): string {
+  const params = new URLSearchParams({
+    url,
+    type
+  });
+
+  if (type === "video") {
+    params.set("quality", quality);
+  }
+
+  return `${apiBaseUrl}/download?${params.toString()}`;
 }
 
 async function readApiError(response: Response): Promise<string> {
@@ -359,6 +410,15 @@ function startBlobDownload(blob: Blob, fileName: string): void {
   anchor.click();
   anchor.remove();
   window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+}
+
+function startDirectDownload(downloadUrl: string): void {
+  const anchor = document.createElement("a");
+  anchor.href = downloadUrl;
+  anchor.rel = "noopener";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
 }
 
 function getErrorMessage(error: unknown): string {

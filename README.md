@@ -55,6 +55,7 @@ STREAM_DOWNLOADS=false
 ALLOWED_ORIGINS=https://videouniversal.vercel.app
 YTDLP_COOKIES_PATH=
 YTDLP_PROXY=
+YTDLP_EXTRACTOR_ARGS=youtube:player_client=android_vr,ios,web
 ADMIN_TOKEN=
 ```
 
@@ -130,7 +131,7 @@ Depois faca redeploy do frontend na Vercel.
 
 ## Instagram e sites com login
 
-O backend envia `User-Agent`, `Accept-Language`, referer, retries e usa FFmpeg para aumentar a compatibilidade com Instagram e outros sites suportados pelo `yt-dlp`. Ainda assim, alguns links podem exigir login, cookies, nao estar publicos, estar bloqueados por regiao ou usar DRM. Nesses casos, configure cookies autorizados no servidor com:
+O backend envia `User-Agent`, `Accept-Language`, referer, retries, clientes alternativos do YouTube e usa FFmpeg para aumentar a compatibilidade com Instagram e outros sites suportados pelo `yt-dlp`. Ainda assim, alguns links podem exigir login, cookies, nao estar publicos, estar bloqueados por regiao ou usar DRM. Nesses casos, configure cookies autorizados no servidor com:
 
 ```env
 YTDLP_COOKIES_PATH=/caminho/para/cookies.txt

@@ -21,6 +21,7 @@ const ytdlpBin = process.env.YTDLP_BIN?.trim() || "yt-dlp";
 const ffmpegBin = process.env.FFMPEG_BIN?.trim() || "ffmpeg";
 const ytdlpCookiesPath = process.env.YTDLP_COOKIES_PATH?.trim();
 const ytdlpProxy = process.env.YTDLP_PROXY?.trim();
+const ytdlpExtractorArgs = process.env.YTDLP_EXTRACTOR_ARGS?.trim() || "youtube:player_client=android_vr,ios,web";
 const streamDownloads = process.env.STREAM_DOWNLOADS === "true";
 const allowedOrigins = getAllowedOrigins(process.env.ALLOWED_ORIGINS ?? process.env.FRONTEND_ORIGIN);
 const browserUserAgent =
@@ -180,20 +181,25 @@ app.post("/api/info", async (req, res, next) => {
 });
 
 app.get("/api/download", async (req, res, next) => {
-  await handleDownloadRequest(parseQueryObject(req.query), res, next);
+  await handleDownloadRequest(parseQueryObject(req.query), res, next, { forceStream: true });
 });
 
 app.post("/api/download", async (req, res, next) => {
   await handleDownloadRequest(parseRequestBody(req.body), res, next);
 });
 
-async function handleDownloadRequest(input: unknown, res: Response, next: NextFunction): Promise<void> {
+async function handleDownloadRequest(
+  input: unknown,
+  res: Response,
+  next: NextFunction,
+  options: { forceStream?: boolean } = {}
+): Promise<void> {
   const tempDir = path.join(downloadsDir, nanoid());
 
   try {
     const { url, type, quality = "best" } = downloadSchema.parse(input);
 
-    if (streamDownloads) {
+    if (options.forceStream || streamDownloads) {
       await streamDownload(url, type, quality, res);
       return;
     }
@@ -551,6 +557,10 @@ function buildYtDlpArgs(url: string, operationArgs: string[]): string[] {
 
   if (ytdlpProxy) {
     args.push("--proxy", ytdlpProxy);
+  }
+
+  if (ytdlpExtractorArgs) {
+    args.push("--extractor-args", ytdlpExtractorArgs);
   }
 
   return [...args, ...operationArgs, url];
@@ -983,6 +993,10 @@ function normalizeYtDlpError(message: string): string {
 
   if (/instagram/i.test(compact) && /private|login|sign in|cookies|not available|checkpoint/i.test(compact)) {
     return "O Instagram bloqueou o acesso automatico a este conteudo. Tente uma URL publica; se o conteudo exige login, configure cookies autorizados no servidor.";
+  }
+
+  if (/youtube|youtu\.be/i.test(compact) && /bot|confirm.*not a bot|sign in|login|cookies/i.test(compact)) {
+    return "O YouTube bloqueou o acesso automatico pelo servidor. Configure cookies autorizados no Render em YTDLP_COOKIES_PATH ou tente novamente em alguns minutos.";
   }
 
   if (/private|login|sign in|cookies/i.test(compact)) {
