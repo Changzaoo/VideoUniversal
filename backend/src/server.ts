@@ -353,6 +353,18 @@ function applySecurityHeaders(req: Request, res: Response, next: NextFunction): 
     res.setHeader(key, value);
   }
 
+  const origin = req.header("origin") ?? "";
+
+  // Chrome may preflight a public HTTPS page before it talks to a localhost companion API.
+  if (
+    isLocalRequest(req) &&
+    allowedOrigins.has(origin) &&
+    req.header("access-control-request-private-network")?.toLowerCase() === "true"
+  ) {
+    res.setHeader("Access-Control-Allow-Private-Network", "true");
+    res.vary("Access-Control-Request-Private-Network");
+  }
+
   if (isProduction && !isLocalRequest(req)) {
     res.setHeader("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
   }
