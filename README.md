@@ -51,7 +51,8 @@ PORT=3333
 HOST=0.0.0.0
 YTDLP_BIN=yt-dlp
 STREAM_DOWNLOADS=false
-FRONTEND_ORIGIN=http://localhost:5173,https://videouniversal.vercel.app
+ALLOWED_ORIGINS=https://videouniversal.vercel.app
+ADMIN_TOKEN=
 ```
 
 ## Rodar o frontend
@@ -100,7 +101,7 @@ O repositorio inclui:
 
 - `render.yaml` na raiz, com um Web Service Docker chamado `videouniversal-backend`.
 - `backend/Dockerfile`, que instala Node.js, Python, `yt-dlp` e FFmpeg.
-- Health check em `/api/health`.
+- Health check em `/api/health`, retornando apenas `{ "ok": true }`.
 - `STREAM_DOWNLOADS=true` no Render, para evitar timeout/502 em downloads maiores.
 
 No Render:

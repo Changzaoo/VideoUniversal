@@ -1,8 +1,62 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
   "installCommand": "cd frontend && npm ci",
   "buildCommand": "cd frontend && npm run build",
   "outputDirectory": "frontend/dist",
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: blob: https:; font-src 'self' data: https:; style-src 'self' https://fonts.googleapis.com; script-src 'self'; connect-src 'self' https://videouniversal.vercel.app https://videouniversal-backend.onrender.com https: wss:; media-src 'self' blob: https:; worker-src 'self' blob:; manifest-src 'self'; upgrade-insecure-requests"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), bluetooth=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        },
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=63072000; includeSubDomains; preload"
+        }
+      ]
+    }
+  ],
+  "routes": [
+    {
+      "src": "/.*",
+      "headers": {
+        "Content-Security-Policy": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: blob: https:; font-src 'self' data: https:; style-src 'self' https://fonts.googleapis.com; script-src 'self'; connect-src 'self' https://videouniversal.vercel.app https://videouniversal-backend.onrender.com https: wss:; media-src 'self' blob: https:; worker-src 'self' blob:; manifest-src 'self'; upgrade-insecure-requests",
+        "X-Frame-Options": "DENY",
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), bluetooth=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload"
+      },
+      "continue": true
+    },
+    {
+      "src": "/(?:admin|dashboard/admin|painel|painel-admin)(?:/.*)?",
+      "status": 403
+    },
+    {
+      "src": "/(?:api(?:/.*)?|graphql(?:/.*)?|swagger(?:/.*)?|api-docs(?:/.*)?|docs(?:/.*)?|openapi(?:\\.json)?|swagger\\.json|debug(?:/.*)?|status(?:/.*)?|diagnostics(?:/.*)?|diag(?:/.*)?|test(?:/.*)?|\\.env(?:\\..*)?|env|config\\.json|secrets\\.json|.*\\.(?:pem|key)|\\.git(?:/.*)?)",
+      "status": 404
+    }
+  ],
   "rewrites": [
     {
       "source": "/(.*)",

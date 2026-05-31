@@ -1,8 +1,16 @@
 node_modules/
 dist/
 .env
+.env.*
+.env.local
+.env.development
+.env.production
 .vercel/
 *.log
+*.pem
+*.key
+secrets.json
+config.json
 
 backend/downloads/
 backend/*.log

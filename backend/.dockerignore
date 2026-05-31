@@ -2,4 +2,9 @@ node_modules
 dist
 downloads
 .env
+.env.*
 *.log
+*.pem
+*.key
+secrets.json
+config.json

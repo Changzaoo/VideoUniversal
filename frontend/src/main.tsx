@@ -100,15 +100,12 @@ function App() {
 
   return (
     <React.StrictMode>
-      <header className="topbar">
-        <a className="brand" href="/" aria-label="Video Universal">
-          <img src="/assets/logo-full.png" alt="Video Universal" />
-        </a>
-      </header>
-
       <main className="main-shell">
         <section className="stage" aria-labelledby="page-title">
           <div className="hero">
+            <a className="hero-logo" href="/" aria-label="Video Universal">
+              <img src="/assets/logo-full.png" alt="Video Universal" />
+            </a>
             <h1 id="page-title">Baixe qualquer video da web</h1>
           </div>
 
@@ -302,20 +299,8 @@ function isLocalApiBaseUrl(apiBaseUrl: string): boolean {
 }
 
 function startBrowserDownload(downloadUrl: string): void {
-  const frameName = "videouniversal-download-frame";
-  let frame = document.querySelector<HTMLIFrameElement>(`iframe[name="${frameName}"]`);
-
-  if (!frame) {
-    frame = document.createElement("iframe");
-    frame.name = frameName;
-    frame.title = "Download";
-    frame.hidden = true;
-    document.body.appendChild(frame);
-  }
-
   const anchor = document.createElement("a");
   anchor.href = downloadUrl;
-  anchor.target = frameName;
   anchor.rel = "noopener";
   document.body.appendChild(anchor);
   anchor.click();

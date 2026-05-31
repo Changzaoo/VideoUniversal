@@ -67,25 +67,12 @@ a {
   color: inherit;
 }
 
-.topbar {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  min-height: 56px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 7px clamp(18px, 5vw, 56px);
-  border-bottom: 1px solid rgba(22, 52, 94, 0.12);
-  background: #ffffff;
-  box-shadow: 0 10px 24px rgba(12, 24, 42, 0.08);
-}
-
-.brand {
+.hero-logo {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   min-width: 0;
+  margin-bottom: 22px;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -93,18 +80,19 @@ a {
   box-shadow: none;
 }
 
-.brand img {
-  width: 142px;
+.hero-logo img {
+  width: clamp(220px, 34vw, 380px);
+  max-width: 82vw;
   height: auto;
   display: block;
   filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.26));
 }
 
 .main-shell {
-  min-height: calc(100vh - 56px);
+  min-height: 100vh;
   display: flex;
   justify-content: center;
-  padding: clamp(34px, 7vh, 66px) 18px 72px;
+  padding: clamp(38px, 8vh, 84px) 18px 72px;
 }
 
 .stage {
@@ -359,13 +347,8 @@ a {
 }
 
 @media (max-width: 780px) {
-  .topbar {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .brand img {
-    width: 136px;
+  .hero-logo img {
+    width: clamp(210px, 62vw, 320px);
   }
 
   .input-row {

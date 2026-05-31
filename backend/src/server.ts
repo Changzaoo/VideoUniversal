@@ -14,24 +14,25 @@ import { z } from "zod";
 dotenv.config();
 
 const app = express();
+const isProduction = process.env.NODE_ENV === "production";
 const port = Number(process.env.PORT ?? 3333);
 const host = process.env.HOST ?? "0.0.0.0";
 const ytdlpBin = process.env.YTDLP_BIN?.trim() || "yt-dlp";
 const streamDownloads = process.env.STREAM_DOWNLOADS === "true";
-const corsOrigins = (process.env.FRONTEND_ORIGIN ?? "http://localhost:5173,https://videouniversal.vercel.app")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
+const allowedOrigins = getAllowedOrigins(process.env.ALLOWED_ORIGINS ?? process.env.FRONTEND_ORIGIN);
 const corsOptions: CorsOptions = {
   origin(origin, callback) {
-    if (!origin || corsOrigins.includes(origin) || /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin)) {
+    if (!origin || allowedOrigins.has(origin)) {
       callback(null, true);
       return;
     }
 
     callback(new HttpError(403, "Origem nao permitida pelo CORS."));
   },
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
   exposedHeaders: ["Content-Disposition"],
+  credentials: false,
   optionsSuccessStatus: 204
 };
 
@@ -96,6 +97,38 @@ class HttpError extends Error {
   }
 }
 
+const contentSecurityPolicy = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "img-src 'self' data: blob: https:",
+  "font-src 'self' data: https:",
+  "style-src 'self' https://fonts.googleapis.com",
+  "script-src 'self'",
+  "connect-src 'self' https://videouniversal.vercel.app https://videouniversal-backend.onrender.com https: wss:",
+  "media-src 'self' blob: https:",
+  "worker-src 'self' blob:",
+  "manifest-src 'self'",
+  "upgrade-insecure-requests"
+].join("; ");
+
+const securityHeaders = {
+  "Content-Security-Policy": contentSecurityPolicy,
+  "X-Frame-Options": "DENY",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy":
+    "camera=(), microphone=(), geolocation=(), payment=(), usb=(), bluetooth=(), magnetometer=(), gyroscope=(), accelerometer=()"
+} as const;
+
+app.disable("x-powered-by");
+app.set("trust proxy", 1);
+app.use(applySecurityHeaders);
+app.use(enforceHttps);
+app.use(blockReservedPublicRoutes);
+app.use(protectAdminRoutes);
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 app.use(express.json({ limit: "1mb" }));
@@ -113,7 +146,7 @@ app.use(
 );
 
 app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok" });
+  res.json({ ok: true });
 });
 
 app.get("/api/info", async (req, res, next) => {
@@ -178,8 +211,7 @@ app.get("/api/download", async (req, res, next) => {
     await runYtDlp(args, 10 * 60 * 1000);
 
     const downloadedFile = await findDownloadedFile(tempDir, type === "video" ? ".mp4" : ".mp3");
-    const safeBaseName = sanitizeFileName(info.title ?? "download", "download");
-    const downloadName = `${safeBaseName}${type === "video" ? ".mp4" : ".mp3"}`;
+    const downloadName = buildDownloadFileName(info.title, type);
 
     res.download(downloadedFile, downloadName, async (error) => {
       await cleanupTempDir(tempDir);
@@ -236,8 +268,7 @@ app.post("/api/download", async (req, res, next) => {
     await runYtDlp(args, 10 * 60 * 1000);
 
     const downloadedFile = await findDownloadedFile(tempDir, type === "video" ? ".mp4" : ".mp3");
-    const safeBaseName = sanitizeFileName(info.title ?? "download", "download");
-    const downloadName = `${safeBaseName}${type === "video" ? ".mp4" : ".mp3"}`;
+    const downloadName = buildDownloadFileName(info.title, type);
 
     res.download(downloadedFile, downloadName, async (error) => {
       await cleanupTempDir(tempDir);
@@ -250,6 +281,10 @@ app.post("/api/download", async (req, res, next) => {
     await cleanupTempDir(tempDir);
     next(error);
   }
+});
+
+app.use((_req, res) => {
+  res.status(404).json({ error: "Nao encontrado." });
 });
 
 app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
@@ -273,8 +308,9 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     return;
   }
 
+  logUnexpectedError(error);
   const message = error instanceof Error ? error.message : "Erro inesperado.";
-  res.status(500).json({ error: normalizeYtDlpError(message) });
+  res.status(500).json({ error: isProduction ? "Erro interno no servidor." : normalizeYtDlpError(message) });
 });
 
 await fs.mkdir(downloadsDir, { recursive: true });
@@ -282,6 +318,173 @@ await fs.mkdir(downloadsDir, { recursive: true });
 app.listen(port, host, () => {
   console.log(`API online em http://${host}:${port}`);
 });
+
+function getAllowedOrigins(value: string | undefined): Set<string> {
+  const origins = new Set<string>(["https://videouniversal.vercel.app"]);
+  const configuredOrigins = (value ?? "")
+    .split(",")
+    .map((origin) => normalizeOrigin(origin))
+    .filter((origin): origin is string => Boolean(origin));
+
+  for (const origin of configuredOrigins) {
+    if (origin === "*" || (isProduction && isLocalOrigin(origin))) {
+      continue;
+    }
+
+    origins.add(origin);
+  }
+
+  if (!isProduction) {
+    for (const origin of [
+      "http://localhost:3000",
+      "http://localhost:5173",
+      "http://localhost:5174",
+      "http://127.0.0.1:3000",
+      "http://127.0.0.1:5173",
+      "http://127.0.0.1:5174"
+    ]) {
+      origins.add(origin);
+    }
+  }
+
+  return origins;
+}
+
+function normalizeOrigin(value: string): string | null {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const url = new URL(trimmed);
+
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return null;
+    }
+
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+function isLocalOrigin(origin: string): boolean {
+  try {
+    const hostname = new URL(origin).hostname;
+    return hostname === "localhost" || hostname === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+
+function applySecurityHeaders(req: Request, res: Response, next: NextFunction): void {
+  for (const [key, value] of Object.entries(securityHeaders)) {
+    res.setHeader(key, value);
+  }
+
+  if (isProduction && !isLocalRequest(req)) {
+    res.setHeader("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
+  }
+
+  next();
+}
+
+function enforceHttps(req: Request, res: Response, next: NextFunction): void {
+  if (!isProduction || isLocalRequest(req)) {
+    next();
+    return;
+  }
+
+  const forwardedProto = req.header("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+
+  if (forwardedProto === "http") {
+    res.redirect(301, `https://${req.header("host") ?? "videouniversal-backend.onrender.com"}${req.originalUrl}`);
+    return;
+  }
+
+  next();
+}
+
+function isLocalRequest(req: Request): boolean {
+  const hostname = req.hostname.toLowerCase();
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+function blockReservedPublicRoutes(req: Request, res: Response, next: NextFunction): void {
+  if (isReservedPublicPath(req.path)) {
+    res.status(404).json({ error: "Nao encontrado." });
+    return;
+  }
+
+  next();
+}
+
+function isReservedPublicPath(pathname: string): boolean {
+  return [
+    /^\/\.env(?:\..*)?$/i,
+    /^\/env$/i,
+    /^\/config\.json$/i,
+    /^\/secrets\.json$/i,
+    /^\/.*\.(?:pem|key)$/i,
+    /^\/\.git(?:\/.*)?$/i,
+    /^\/(?:swagger|api-docs|docs|openapi(?:\.json)?|swagger\.json)(?:\/.*)?$/i,
+    /^\/graphql(?:\/.*)?$/i,
+    /^\/(?:debug|status|diagnostics|diag|test)(?:\/.*)?$/i,
+    /^\/api\/(?:debug|status|diagnostics|diag|test)(?:\/.*)?$/i
+  ].some((pattern) => pattern.test(pathname));
+}
+
+function protectAdminRoutes(req: Request, res: Response, next: NextFunction): void {
+  if (!isAdminPath(req.path)) {
+    next();
+    return;
+  }
+
+  const token = getAdminToken(req);
+
+  if (!token) {
+    res.status(401).json({ error: "Autenticacao requerida." });
+    return;
+  }
+
+  const expectedToken = process.env.ADMIN_TOKEN?.trim();
+
+  if (!expectedToken || token !== expectedToken) {
+    res.status(403).json({ error: "Acesso negado." });
+    return;
+  }
+
+  next();
+}
+
+function isAdminPath(pathname: string): boolean {
+  return /^\/(?:admin|dashboard\/admin|painel|painel-admin|api\/admin)(?:\/.*)?$/i.test(pathname);
+}
+
+function getAdminToken(req: Request): string | null {
+  const authorization = req.header("authorization")?.trim();
+
+  if (authorization?.toLowerCase().startsWith("bearer ")) {
+    return authorization.slice(7).trim() || null;
+  }
+
+  return req.header("x-admin-token")?.trim() || null;
+}
+
+function logUnexpectedError(error: unknown): void {
+  if (error instanceof Error) {
+    console.error("Erro inesperado no servidor", {
+      name: error.name,
+      message: error.message,
+      stack: isProduction ? undefined : error.stack
+    });
+    return;
+  }
+
+  console.error("Erro inesperado no servidor", { error });
+}
 
 async function getVideoInfo(url: string): Promise<VideoInfo> {
   try {
@@ -405,12 +608,8 @@ function runYtDlp(args: string[], timeoutMs: number): Promise<{ stdout: string; 
 }
 
 async function streamDownload(url: string, type: "video" | "audio", quality: string, res: Response): Promise<void> {
-  const extension = type === "video" ? "mp4" : "mp3";
-  const fileName = `videouniversal-download.${extension}`;
-  prepareDownloadResponse(res, {
-    contentType: type === "video" ? "video/mp4" : "audio/mpeg",
-    fileName
-  });
+  const info = await getVideoInfo(url);
+  const fileName = buildDownloadFileName(info.title, type);
 
   if (type === "video") {
     const child = spawn(ytdlpBin, getStreamingVideoArgs(url, quality), {
@@ -419,7 +618,7 @@ async function streamDownload(url: string, type: "video" | "audio", quality: str
     });
 
     await streamChildStdout(child, res, {
-      contentType: "video/mp4",
+      contentType: getDownloadContentType(type),
       fileName,
       firstByteTimeoutMs: 90 * 1000,
       stderrLabel: "yt-dlp"
@@ -454,7 +653,7 @@ async function streamDownload(url: string, type: "video" | "audio", quality: str
   });
 
   await streamChildStdout(ffmpeg, res, {
-    contentType: "audio/mpeg",
+    contentType: getDownloadContentType(type),
     fileName,
     firstByteTimeoutMs: 120 * 1000,
     stderrLabel: "ffmpeg"
@@ -605,9 +804,57 @@ function prepareDownloadResponse(res: Response, options: { contentType: string; 
   }
 
   res.setHeader("Content-Type", options.contentType);
-  res.setHeader("Content-Disposition", `attachment; filename="${options.fileName}"`);
+  res.setHeader("Content-Disposition", getAttachmentContentDisposition(options.fileName));
   res.setHeader("Cache-Control", "no-store");
   res.flushHeaders();
+}
+
+function buildDownloadFileName(title: string | null, type: "video" | "audio"): string {
+  const safeBaseName = sanitizeFileName(title ?? "download", "download");
+  return `${safeBaseName}.${getDownloadExtension(type)}`;
+}
+
+function getDownloadExtension(type: "video" | "audio"): "mp4" | "mp3" {
+  return type === "video" ? "mp4" : "mp3";
+}
+
+function getDownloadContentType(type: "video" | "audio"): "video/mp4" | "audio/mpeg" {
+  return type === "video" ? "video/mp4" : "audio/mpeg";
+}
+
+function getAttachmentContentDisposition(fileName: string): string {
+  const fallbackFileName = sanitizeAsciiFileName(fileName, "download");
+  return `attachment; filename="${escapeHeaderQuotedString(fallbackFileName)}"; filename*=UTF-8''${encodeRfc5987Value(fileName)}`;
+}
+
+function sanitizeAsciiFileName(value: string, fallback: string): string {
+  const extension = path.parse(value).ext;
+  const fallbackFileName = extension ? `${fallback}${extension}` : fallback;
+  const cleaned = value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\x20-\x7e]/g, "")
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[. ]+$/g, "")
+    .slice(0, 140);
+
+  if (!cleaned || cleaned.startsWith(".") || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(cleaned)) {
+    return fallbackFileName;
+  }
+
+  return cleaned;
+}
+
+function escapeHeaderQuotedString(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function encodeRfc5987Value(value: string): string {
+  return encodeURIComponent(value).replace(/['()*]/g, (character) =>
+    `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+  );
 }
 
 async function findDownloadedFile(tempDir: string, preferredExtension: string): Promise<string> {
@@ -633,7 +880,7 @@ async function cleanupTempDir(tempDir: string): Promise<void> {
 
 function sanitizeFileName(value: string, fallback: string): string {
   const cleaned = value
-    .normalize("NFKD")
+    .normalize("NFKC")
     .replace(/[<>:"/\\|?*\x00-\x1f]/g, "")
     .replace(/\s+/g, " ")
     .trim()
