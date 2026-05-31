@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+.vercel/
+*.log
+
+backend/downloads/
+backend/*.log
+frontend/*.log
