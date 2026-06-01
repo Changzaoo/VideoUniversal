@@ -57,6 +57,10 @@ const corsOptions: CorsOptions = {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const downloadsDir = path.resolve(__dirname, "..", "downloads");
+const projectRoot = path.resolve(__dirname, "..", "..");
+const frontendDistDir = path.join(projectRoot, "frontend", "dist");
+const frontendIndexPath = path.join(frontendDistDir, "index.html");
+const serveLocalFrontend = process.env.SERVE_FRONTEND !== "false" && (await fileExists(frontendIndexPath));
 
 const allowedUrl = z
   .string()
@@ -291,11 +295,20 @@ app.use(
   })
 );
 
+if (serveLocalFrontend) {
+  app.use(express.static(frontendDistDir, { index: false }));
+}
+
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
 });
 
 app.get("/", (_req, res) => {
+  if (serveLocalFrontend) {
+    res.sendFile(frontendIndexPath);
+    return;
+  }
+
   res.redirect(302, process.env.FRONTEND_ORIGIN?.trim() || "https://videouniversal.vercel.app");
 });
 
@@ -328,6 +341,17 @@ app.get("/api/download", async (req, res, next) => {
 app.post("/api/download", async (req, res, next) => {
   await handleDownloadRequest(parseRequestBody(req.body), res, next);
 });
+
+if (serveLocalFrontend) {
+  app.get("*", (req, res, next) => {
+    if (req.path === "/api" || req.path.startsWith("/api/")) {
+      next();
+      return;
+    }
+
+    res.sendFile(frontendIndexPath);
+  });
+}
 
 async function handleDownloadRequest(
   input: unknown,
@@ -408,8 +432,17 @@ await prepareYtDlpCookiesFile();
 await fs.mkdir(downloadsDir, { recursive: true });
 
 app.listen(port, host, () => {
-  console.log(`API online em http://${host}:${port}`);
+  console.log(`${serveLocalFrontend ? "App" : "API"} online em http://${host}:${port}`);
 });
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function getAllowedOrigins(value: string | undefined): Set<string> {
   const origins = new Set<string>(["https://videouniversal.vercel.app"]);

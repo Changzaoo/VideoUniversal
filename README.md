@@ -93,7 +93,28 @@ $env:PORT="3334"; npm run dev
 $env:VITE_API_BASE_URL="http://localhost:3334/api"; npm run dev
 ```
 
-Sem `VITE_API_BASE_URL`, o frontend em modo dev tenta automaticamente as APIs locais `3333` e `3334` antes do backend publicado.
+Sem `VITE_API_BASE_URL`, o frontend em modo dev tenta automaticamente a API da propria origem, a porta local `47873`
+e as APIs locais `3333`/`3334` antes do backend publicado.
+
+## Inicializacao automatica no Windows
+
+Para iniciar o app automaticamente no login do Windows, use:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-windows-startup.ps1
+```
+
+Isso registra a tarefa `VideoUniversalLocal` no Agendador de Tarefas e sobe frontend + API em uma unica porta local:
+
+```text
+http://127.0.0.1:47873
+```
+
+A porta `47873` foi escolhida por estar fora da faixa dinamica padrao do Windows (`49152-65535`) e por estar livre no momento da configuracao. Logs ficam em:
+
+```text
+%LOCALAPPDATA%\VideoUniversal\
+```
 
 ## PWA no celular
 

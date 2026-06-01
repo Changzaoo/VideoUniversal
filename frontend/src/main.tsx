@@ -19,6 +19,8 @@ const LOCAL_HEALTH_TIMEOUT_MS = 3500;
 const REMOTE_HEALTH_TIMEOUT_MS = 30000;
 const VIDEO_INFO_TIMEOUT_MS = 45000;
 const LOCAL_API_BASE_URLS = [
+  "http://127.0.0.1:47873/api",
+  "http://localhost:47873/api",
   "http://localhost:3333/api",
   "http://localhost:3334/api",
   "http://127.0.0.1:3333/api",
@@ -441,6 +443,11 @@ function getApiBaseUrlCandidates(preferredApiBaseUrl?: string): string[] {
     candidates.push(preferredApiBaseUrl);
   }
 
+  const currentOriginApiBaseUrl = getCurrentOriginApiBaseUrl();
+  if (currentOriginApiBaseUrl) {
+    candidates.push(currentOriginApiBaseUrl);
+  }
+
   if (CONFIGURED_API_BASE_URL && isLocalApiBaseUrl(CONFIGURED_API_BASE_URL)) {
     candidates.push(CONFIGURED_API_BASE_URL);
   }
@@ -458,6 +465,16 @@ function getApiBaseUrlCandidates(preferredApiBaseUrl?: string): string[] {
   candidates.push(REMOTE_API_BASE_URL);
 
   return Array.from(new Set(candidates.map((candidate) => normalizeApiBaseUrl(candidate)).filter(Boolean)));
+}
+
+function getCurrentOriginApiBaseUrl(): string {
+  const hostname = window.location.hostname;
+
+  if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") {
+    return `${window.location.origin}/api`;
+  }
+
+  return "";
 }
 
 function normalizeApiBaseUrl(value: string | undefined): string {
