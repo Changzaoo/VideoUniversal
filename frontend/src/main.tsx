@@ -12,11 +12,10 @@ import {
   Smartphone,
 } from "lucide-react";
 
-const REMOTE_API_BASE_URL = "https://videouniversal-backend.onrender.com/api";
 const NGROK_API_BASE_URL = "/pc-api";
 const DIRECT_DOWNLOAD_MIN_DURATION_SECONDS = 5 * 60;
 const LOCAL_HEALTH_TIMEOUT_MS = 3500;
-const REMOTE_HEALTH_TIMEOUT_MS = 30000;
+const NGROK_HEALTH_TIMEOUT_MS = 30000;
 const VIDEO_INFO_TIMEOUT_MS = 45000;
 const LOCAL_API_BASE_URLS = [
   "http://127.0.0.1:47873/api",
@@ -295,7 +294,10 @@ async function resolveApiBaseUrl(preferredApiBaseUrl: string): Promise<string> {
     }
   }
 
-  throw normalizeRequestError(lastError, "Nao encontrei a API online. Tente novamente em alguns segundos.");
+  throw normalizeRequestError(
+    lastError,
+    "Nao encontrei o backend deste PC pelo ngrok. Confira se o backend local, o roteador ngrok e o tunel estao ativos."
+  );
 }
 
 async function fetchWithTimeout(url: string, timeoutMs: number, init?: RequestInit): Promise<Response> {
@@ -383,7 +385,7 @@ function shouldUseDirectDownload(info: VideoInfo | null, type: DownloadType): bo
 }
 
 function getHealthTimeoutMs(apiBaseUrl: string): number {
-  return isLocalApiBaseUrl(apiBaseUrl) ? LOCAL_HEALTH_TIMEOUT_MS : REMOTE_HEALTH_TIMEOUT_MS;
+  return isLocalApiBaseUrl(apiBaseUrl) ? LOCAL_HEALTH_TIMEOUT_MS : NGROK_HEALTH_TIMEOUT_MS;
 }
 
 function buildDownloadUrl(apiBaseUrl: string, url: string, type: DownloadType, quality: VideoQuality): string {
@@ -439,7 +441,7 @@ function getFileNameFromContentDisposition(header: string | null): string | null
 function getApiBaseUrlCandidates(preferredApiBaseUrl?: string): string[] {
   const candidates: string[] = [];
 
-  if (preferredApiBaseUrl) {
+  if (preferredApiBaseUrl && isPcBackendApiBaseUrl(preferredApiBaseUrl)) {
     candidates.push(preferredApiBaseUrl);
   }
 
@@ -448,7 +450,7 @@ function getApiBaseUrlCandidates(preferredApiBaseUrl?: string): string[] {
     candidates.push(currentOriginApiBaseUrl);
   }
 
-  if (CONFIGURED_API_BASE_URL && isLocalApiBaseUrl(CONFIGURED_API_BASE_URL)) {
+  if (CONFIGURED_API_BASE_URL && isPcBackendApiBaseUrl(CONFIGURED_API_BASE_URL)) {
     candidates.push(CONFIGURED_API_BASE_URL);
   }
 
@@ -457,12 +459,6 @@ function getApiBaseUrlCandidates(preferredApiBaseUrl?: string): string[] {
   }
 
   candidates.push(...LOCAL_API_BASE_URLS);
-
-  if (CONFIGURED_API_BASE_URL && !isLocalApiBaseUrl(CONFIGURED_API_BASE_URL)) {
-    candidates.push(CONFIGURED_API_BASE_URL);
-  }
-
-  candidates.push(REMOTE_API_BASE_URL);
 
   return Array.from(new Set(candidates.map((candidate) => normalizeApiBaseUrl(candidate)).filter(Boolean)));
 }
@@ -513,6 +509,10 @@ function isNgrokApiBaseUrl(apiBaseUrl: string): boolean {
   } catch {
     return false;
   }
+}
+
+function isPcBackendApiBaseUrl(apiBaseUrl: string): boolean {
+  return isLocalApiBaseUrl(apiBaseUrl) || isNgrokApiBaseUrl(apiBaseUrl);
 }
 
 function getApiRequestHeaders(apiBaseUrl: string, headers: HeadersInit = {}): HeadersInit {

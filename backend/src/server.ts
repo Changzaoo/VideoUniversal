@@ -257,7 +257,7 @@ const contentSecurityPolicy = [
   "font-src 'self' data: https://fonts.gstatic.com",
   "style-src 'self' https://fonts.googleapis.com",
   "script-src 'self'",
-  "connect-src 'self' https://videouniversal.vercel.app https://videouniversal-backend.onrender.com https://*.ngrok-free.dev https://*.ngrok.io https://*.ngrok.app",
+  "connect-src 'self' https://videouniversal.vercel.app https://*.ngrok-free.dev https://*.ngrok.io https://*.ngrok.app",
   "media-src 'self' blob:",
   "worker-src 'self' blob:",
   "manifest-src 'self'",
@@ -537,7 +537,7 @@ function enforceHttps(req: Request, res: Response, next: NextFunction): void {
   const forwardedProto = req.header("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
 
   if (forwardedProto === "http") {
-    res.redirect(301, `https://${req.header("host") ?? "videouniversal-backend.onrender.com"}${req.originalUrl}`);
+    res.redirect(301, `https://${req.header("host") ?? "localhost:3333"}${req.originalUrl}`);
     return;
   }
 
@@ -1506,7 +1506,7 @@ function normalizeYtDlpError(message: string): string {
   }
 
   if (/cookies file|could not open.*cookies|failed to read.*cookies|no such file.*cookies/i.test(compact)) {
-    return "O servidor nao conseguiu ler os cookies do yt-dlp. No Render, configure YTDLP_COOKIES_BASE64 ou ajuste YTDLP_COOKIES_PATH para um arquivo existente.";
+    return "O backend deste PC nao conseguiu ler os cookies do yt-dlp. Configure YTDLP_COOKIES_BASE64 ou ajuste YTDLP_COOKIES_PATH para um arquivo existente.";
   }
 
   if (/instagram/i.test(compact) && /private|login|sign in|cookies|not available|checkpoint/i.test(compact)) {
@@ -1514,7 +1514,7 @@ function normalizeYtDlpError(message: string): string {
   }
 
   if (/youtube|youtu\.be/i.test(compact) && /bot|confirm.*not a bot|sign in|login|cookies/i.test(compact)) {
-    return "O YouTube bloqueou o acesso automatico pelo servidor. Configure cookies autorizados no Render em YTDLP_COOKIES_BASE64 ou tente novamente em alguns minutos.";
+    return "O YouTube bloqueou o acesso automatico pelo backend deste PC. Configure cookies autorizados em YTDLP_COOKIES_BASE64 ou tente novamente em alguns minutos.";
   }
 
   if (/private|login|sign in|cookies/i.test(compact)) {

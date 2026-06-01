@@ -93,8 +93,8 @@ $env:PORT="3334"; npm run dev
 $env:VITE_API_BASE_URL="http://localhost:3334/api"; npm run dev
 ```
 
-Sem `VITE_API_BASE_URL`, o frontend em modo dev tenta automaticamente a API da propria origem, a porta local `47873`
-e as APIs locais `3333`/`3334` antes do backend publicado.
+Sem `VITE_API_BASE_URL`, o frontend em modo dev tenta automaticamente a API da propria origem, `/pc-api`, a porta
+local `47873` e as APIs locais `3333`/`3334`. O app nao usa mais o backend do Render como fallback.
 
 ## Inicializacao automatica no Windows
 
@@ -139,9 +139,23 @@ ngrok http http://127.0.0.1:3099
 ```
 
 O roteador deixa duas portas locais rodando em paralelo no mesmo dominio do ngrok: `/vu/*` vai para o Video Universal
-em `3333`, e todo o restante continua indo para a outra aplicacao em `3005`. O frontend publicado tenta primeiro
-`/pc-api`, uma rota da Vercel que repassa para `/vu/api/*` no tunel configurado no `vercel.json`. Se o tunel estiver
-offline, o app tenta as APIs locais e depois o backend do Render.
+em `3333`, e todo o restante continua indo para a outra aplicacao em `3005`. O frontend publicado usa `/pc-api`, uma
+rota da Vercel que repassa para `/vu/api/*` no tunel configurado no `vercel.json`.
+
+Quando o dominio do ngrok mudar, atualize a rewrite `/pc-api/:path*` no `vercel.json` para:
+
+```json
+"destination": "https://SEU-DOMINIO-NGROK/vu/api/:path*"
+```
+
+Se preferir apontar o frontend direto para o ngrok durante a build, use:
+
+```env
+VITE_API_BASE_URL=https://SEU-DOMINIO-NGROK/vu/api
+```
+
+Nao configure `VITE_API_BASE_URL` com o Render para este fluxo. Se o tunel estiver offline, o app tenta apenas APIs
+locais e mostra erro em vez de mandar downloads para datacenter.
 
 ## Endpoints
 
@@ -176,7 +190,7 @@ No Render:
 https://videouniversal-backend.onrender.com/api/health
 ```
 
-O frontend publicado em Vercel deve usar:
+Para o fluxo atual via PC/ngrok, nao use este backend como fallback do frontend publicado. A configuracao antiga era:
 
 ```env
 VITE_API_BASE_URL=https://videouniversal-backend.onrender.com/api
